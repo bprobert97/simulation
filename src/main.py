@@ -1,44 +1,15 @@
 #!/usr/bin/env python3
 import itertools
+import random
 from queue import PriorityQueue
 from copy import deepcopy
+import simpy
+from pubsub import pub
 
 from node import Node
 from routing import Contact, cgr_yens
-
-
-class Simulation:
-	"""
-	The main discrete-event simulation controller, which maintains a queue of events
-	that are awaiting completion, ordered by time.
-	"""
-	def __init__(self):
-		self.now = 0
-		self.event_queue = PriorityQueue()
-		self.item_counter = -1
-
-	def run(self):
-		while not self.event_queue.empty():
-			self.next_event()
-
-	def add_event(self, time_start: int, *args):
-		"""
-		Method to add events to the simulation queue
-		"""
-		self.item_counter += 1
-		process_tuple = (time_start, self.item_counter)
-		self.event_queue.put(process_tuple)
-
-	def next_event(self):
-		"""
-		Extract the next event from the queue (i.e. the one that is soonest to occur),
-		update the time to the moment it starts and execute the appropriate function
-		"""
-		event = self.event_queue.get()
-		self.now = event[0]
-
-		# Invoke the bound method for this event, passing in the data
-		event[2](event[3])
+from scheduling import Scheduler
+from bundleMgmt import Buffer, Bundle
 
 
 def contact_generator(sim, cp, nodes):
@@ -48,8 +19,39 @@ def contact_generator(sim, cp, nodes):
 		nodes[contact.frm].contact_start(contact.to, sim.now)
 
 
-def init_nodes():
-	return {n.uid: n for n in [Node(x) for x in range(4)]}
+def generate_random_bundles(num_bundles, source, destinations):
+	bundles = []
+	for b in range(num_bundles):
+		bundles.append(Bundle(source, random.choice(destinations)))
+	return bundles
+
+
+def init_nodes(num_nodes, cp):
+	node_dict = {}
+	for n_uid in range(num_nodes):
+		node = Node(
+			n_uid,
+			buffer=Buffer(100),
+			contact_plan=cp,
+			outbound_q={x: [] for x in range(num_nodes)}
+		)
+
+		# Subscribe to any published messages that indicate a bundle has been sent to
+		# this node. This will execute the bundle_receive() method on board the node
+		pub.subscribe(node.bundle_receive, str(n_uid) + "bundle")
+
+		bundles = generate_random_bundles(
+			5,
+			n_uid,
+			[x for x in range(num_nodes) if x != n_uid]
+		)
+
+		for b in bundles:
+			node.outbound_q[b.dst].append(b)
+
+		node_dict[n_uid] = node
+
+	return {uid: n for uid, n in node_dict.items()}
 
 
 def init_contact_plan():
@@ -81,18 +83,16 @@ if __name__ == "__main__":
 	tasks according to their assignation (i.e. bundle acquisition). Acquired bundles 
 	are routed through the network via either CGR or MSR, as specified.
 	"""
-	nodes = init_nodes()
+	env = simpy.Environment()
 	cp = init_contact_plan()
+	nodes = init_nodes(4, cp)
 	create_route_tables(nodes, cp)
 
-	sim = Simulation()
+	for node in nodes.values():
+		env.process(node.contact_controller(env))  # Generator that initiates contacts
+		# TODO Need to add in the generators that do the regular bundle assignment and
+		#  route discovery (if applicable)
 
-	contact_generator(sim, cp, nodes)
-
-	# for contact in cp:
-	# 	sim.add_event(contact.start, nodes[contact.frm].contact_end, contact)
-	# 	sim.add_event(contact.end, nodes[contact.frm].contact_end, contact)
-
-	sim.run()
+	env.run(until=30)
 
 	print('')

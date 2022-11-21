@@ -1,17 +1,11 @@
 import simpy
 import random
 from dataclasses import dataclass
+from queue import Queue
 
 
 TIME_BETWEEN_CONTACTS = [5, 10]
 LENGTH_OF_CONTACTS = [3, 5]
-
-
-# def contact_controller(env, nodes):
-# 	next_contact = random.randint(*TIME_BETWEEN_CONTACTS)
-# 	yield env.timeout(next_contact)
-# 	sender = random.choice(nodes)
-# 	receiver = [x for x in nodes if x != sender]
 
 
 @dataclass
@@ -36,41 +30,47 @@ def init_contact_plan():
 	]
 
 
+def init_buffer():
+	buffer = Queue()
+	for x in range(8):
+		buffer.put(x)
+	return buffer
+
+
 class Node:
 	def __init__(self, name, uid):
 		self.name = name
 		self.uid = uid
-		self.buffer = list(range(100))
+		self.buffer = init_buffer()
 		self.in_contact = []
 		self.cp = init_contact_plan()
 		self.cp_self = [x for x in self.cp if x.frm == self.uid]
 		self.no_more_contacts = False
 
-	def contact_init(self, env):
+	def contact_controller(self, env):
 		while self.cp_self:
 			contact = self.cp_self.pop(0)
 			time_to_next_contact = contact.start - env.now
 			yield env.timeout(time_to_next_contact)
 			self.in_contact.append(contact.to)
 			print(f"contact started on {self.uid} with {contact.to} at {env.now}")
-			env.process(self.contact_ender(env, contact))
 			env.process(self.bundle_send(env, contact))
 
-	def contact_ender(self, env, contact):
-		contact_duration = contact.end - env.now
-		yield env.timeout(contact_duration)
-		self.in_contact.remove(contact.to)
-		print(f"contact between {self.uid} and {contact.to} ended at {env.now}")
-
 	def bundle_send(self, env, contact):
-		while self.buffer:
-			bundle = self.buffer.pop()
+		contact_end = contact.end
+		while env.now <= contact_end:
+			if self.buffer.empty():
+				print(f"node {self.uid} exhausted its buffer at {env.now}, waiting...")
+				yield env.timeout(2)
+				continue
+			bundle = self.buffer.get()
 			send_time = 1 / contact.rate
 			print(f"bundle {bundle} sent from {self.uid} to {contact.to} at time {env.now}")
 			yield env.timeout(send_time)
-
-			if not self.in_contact:
+			if contact.to not in self.in_contact:
 				break
+
+		print(f"contact between {self.uid} and {contact.to} ended at {env.now}")
 
 
 if __name__ == "__main__":
@@ -84,7 +84,7 @@ if __name__ == "__main__":
 		nodes.append(Node(f"node_{k}", k))
 
 	for node in nodes:
-		env.process(node.contact_init(env))
+		env.process(node.contact_controller(env))
 		# env.process(node.bundle_send(env, [x.name for x in nodes if x != node][0]))
 
 	env.run(until=60)

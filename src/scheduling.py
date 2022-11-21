@@ -401,8 +401,6 @@ class Scheduler:
             contact.clear_management_area()
 
 
-
-
 def get_matching_task_idx(self, task):
     # TODO The use of this flag avoids an issue when the idx is 0, but it feels hacky
     flag = False
