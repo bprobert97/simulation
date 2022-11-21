@@ -1,5 +1,8 @@
+#!/usr/bin/env python3
+
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import List
 
 from routing import Route, Contact
 
@@ -48,32 +51,14 @@ class Task:
         self._status = value
 
 
-def get_matching_task_idx(self, task):
-    # TODO The use of this flag avoids an issue when the idx is 0, but it feels hacky
-    flag = False
-    for idx, t in enumerate(self.table):
-        # If it's the same task, but the status is different, this means that
-        # there's a mismatch that needs addressing.
-        if task.target == t.target and task.assignee == t.assignee and \
-                task.scheduled_at == t.scheduled_at:
-            flag = True
-            return flag, idx
-    return flag, None
-
-
-def update_task_status(self, task, new_status: str):
-    flag, idx = self.get_matching_task_idx(task)
-    if flag:
-        self.table[idx].status = new_status
-
-
 @dataclass
 class Scheduler:
-    """The Scheduler is an object that enables a node to carry out Contact Graph Scheduling operations. I.e. it can
-    receive requests and process them to create tasks, which are added to a task table"""
-    task_table: list
-    contact_plan: list
-    request_queue: list
+    """The Scheduler is an object that enables a node to carry out Contact Graph
+    Scheduling operations. I.e. it can receive requests and process them to create
+    tasks, which are added to a task table"""
+    task_table: List = field(default_factory=lambda: [])
+    contact_plan: List = field(default_factory=lambda: [])
+    request_queue: List = field(default_factory=lambda: [])
 
     def request_received(self, request):
         """
@@ -83,7 +68,7 @@ class Scheduler:
         """
         self.request_queue.append(request)
 
-    def process_requests(self):
+    def process_requests(self, curr_time):
         """Process each request in the queue, by identifying the assignee-target contact
         that will collect the payload, creating a Task for this and adding it to the table
         :return:
@@ -92,7 +77,7 @@ class Scheduler:
             request = self.request_queue.pop(0)
             # Adjust the contact plan to include contacts with the target node
             self._add_target_contacts(request)
-            task = self.schedule_task(request)
+            task = self.schedule_task(request, curr_time)
 
             # If a task has been created (i.e. there is a feasible acquisition and
             # delivery opportunity), add the task to the table. Else, that request
@@ -101,32 +86,32 @@ class Scheduler:
                 self.task_table.add_task(task)
             else:
                 pass  # TODO add in something that logs an request cannot be met
-            self._remove_target_contacts(request.target_id)
+            self._remove_contact_from_cp(request.target_id)
 
-    def schedule_task(self, request):
+    def schedule_task(self, request, curr_time):
         """
-		Identify the contact, between a satellite & target, in which the request should
-		be fulfilled and return a task that includes the necessary info. The process to
-		this is effectively an open-ended version of Yen's algorithm, whereby routes to
-		the acquisition opportunity are found, followed immediately by finding the
-		shortest route to the destination from that point.
+        Identify the contact, between a satellite & target, in which the request should
+        be fulfilled and return a task that includes the necessary info. The process to
+        this is effectively an open-ended version of Yen's algorithm, whereby routes to
+        the acquisition opportunity are found, followed immediately by finding the
+        shortest route to the destination from that point.
 
-		As requests are handled, the main contact schedule is updated to account for
-		the resources used, such that future requests are scheduled based on the
-		network state having already processed previous requests.
-		:param request:
-		:return:
-		"""
+        As requests are handled, the main contact schedule is updated to account for
+        the resources used, such that future requests are scheduled based on the
+        network state having already processed previous requests.
+        :param request:
+        :return:
+        """
         # Execute Yen's algorithm, using the Contact Graph as the network, to identify
         # the preferred assignee and time to fulfill the request. The root node is a
         # continuous contact from the Scheduler to itself and the destination is a
         # virtual contact between the target and itself, to which all contacts ending
         # at the target are connected.
         # TODO setting the UID of the Scheduler to = 1
-        acq_path, del_path = self._cgs_routing(self.uid, request)
+        acq_path, del_path = self._cgs_routing(self.uid, request, curr_time)
         if acq_path:
             for hop in del_path.hops[:-1]:
-                hop.capacity -= request.data_volume
+                hop.volume -= request.data_volume
 
             # Create a "task" object, which outlines who will acquire the data, from where,
             # and when. Also includes any deadlines for data acquisition and delivery (if
@@ -145,7 +130,7 @@ class Scheduler:
                 ", as either acquisition or delivery wasn't feasible")
             return
 
-    def _cgs_routing(self, root: int, request) -> tuple:
+    def _cgs_routing(self, root: int, request: Request, curr_time: int) -> tuple:
         """
         Find the acquisition and delivery paths such that the data is delivered at the
         earliest opportunity.
@@ -174,8 +159,8 @@ class Scheduler:
 
         # Root contact is the connection to self that acts as the source vertex in the
         # Contact Graph
-        root = Contact(0, root, root, config.TIME, sys.maxsize, sys.maxsize)
-        root.arrival_time = config.TIME
+        root = Contact(0, root, root, curr_time, sys.maxsize, sys.maxsize)
+        root.arrival_time = curr_time
 
         while True:
             # Find the lowest cost acquisition path using Dijkstra
@@ -202,7 +187,7 @@ class Scheduler:
             # Identify best route to the destination from our current acquiring node
             path_del = self._dijkstra(
                 root_delivery,
-                request.destination_id,
+                request.destinati       ,
                 request.time_del,
                 request.data_volume
             )
@@ -299,7 +284,7 @@ class Scheduler:
                 continue
             if contact.t_end <= current.arrival_time:
                 continue
-            if contact.capacity < size:
+            if contact.volume < size:
                 continue
             # TODO remove this as should never be the case I don't think
             if current.frm == contact.to:
@@ -382,9 +367,9 @@ class Scheduler:
 
     def _add_target_contacts(self, request):
         """
-		Add contacts to the request target node, to the contact list, so that they can
-		be considered as part of the CGS procedure
-		"""
+        Add contacts to the request target node, to the contact list, so that they can
+        be considered as part of the CGS procedure
+        """
         # TODO change this to find connections in real-time, rather than finding
         #  already identified contacts with pre-defined targets.
         target_contacts = []
@@ -401,35 +386,37 @@ class Scheduler:
                     )
                 )
 
-        self.contact_list.extend(target_contacts)
-        self.contact_list.sort(key=lambda k: k.t_start)
+        self.contact_plan.extend(target_contacts)
+        self.contact_plan.sort(key=lambda k: k.t_start)
 
-    def _remove_target_contacts(self, node_id):
+    def _remove_contact_from_cp(self, node_id):
         """
-		Remove all contacts to a particular node, from the contact list
-		"""
-        self.contact_list = [x for x in self.contact_list if x.to != node_id]
+        Remove all contacts to a particular node, from the contact list
+        """
+        self.contact_plan = [x for x in self.contact_plan if x.to != node_id]
 
     def _reset_contacts(self):
-        for contact in self.contact_list:
+        for contact in self.contact_plan:
             contact.clear_dijkstra_area()
             contact.clear_management_area()
 
 
-@dataclass
-class Router:
-    """The Router is an object that enables a node to carry out Contact Graph Routing. I.e. it can identify routes to
-    different endpoints, assign bundles to specific routes and forward bundles during the appropriate contact"""
-    pass
 
 
-@dataclass
-class Node:
-    """A Node object is a network element that can participate, in some way, to the data scheduling, generation,
-    routing and/or delivery process"""
-    uid: int
-    endpoints: list = None
-    scheduler: Scheduler = None
-    router: Router = None
+def get_matching_task_idx(self, task):
+    # TODO The use of this flag avoids an issue when the idx is 0, but it feels hacky
+    flag = False
+    for idx, t in enumerate(self.table):
+        # If it's the same task, but the status is different, this means that
+        # there's a mismatch that needs addressing.
+        if task.target == t.target and task.assignee == t.assignee and \
+                task.scheduled_at == t.scheduled_at:
+            flag = True
+            return flag, idx
+    return flag, None
 
 
+def update_task_status(self, task, new_status: str):
+    flag, idx = self.get_matching_task_idx(task)
+    if flag:
+        self.table[idx].status = new_status
