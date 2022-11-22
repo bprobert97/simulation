@@ -46,7 +46,7 @@ def init_nodes(num_nodes, cp):
 		)
 
 		for b in bundles:
-			node.outbound_queues[b.dst].append(b)
+			node.buffer.append(b)
 
 		node_dict[n_uid] = node
 
@@ -88,6 +88,7 @@ if __name__ == "__main__":
 	create_route_tables(nodes, cp)
 
 	for node in nodes.values():
+		node.bundle_assignment(env)
 		env.process(node.contact_controller(env))  # Generator that initiates contacts
 		# TODO Need to add in the generators that do the regular bundle assignment and
 		#  route discovery (if applicable)

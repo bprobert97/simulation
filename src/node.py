@@ -23,6 +23,7 @@ class Node:
     outbound_queues: Dict = field(default_factory=lambda: {})
     contact_plan: List = field(default_factory=lambda: [])
     route_table: Dict = field(default_factory=lambda: {})
+    drop_list: List = field(default_factory=lambda: [])
 
     def contact_controller(self, env):
         """
@@ -104,3 +105,80 @@ class Node:
         for contact in self.contact_plan:
             if contact.start > env.now and contact.frm == self.uid:
                 return contact
+
+    def bundle_assignment(self, env):
+        """
+        For each bundle in the virtual buffer, identify the route over which it should
+        be sent and reduce the resources along each Contact in that route accordingly.
+        Stop once all bundles have been assigned a route. Bundles for which a
+        feasible route (i.e. one that ensures delivery before the bundle's expiry) is
+        not available shall be dropped from the buffer.
+        :return:
+        """
+        while not self.buffer.is_empty():
+            assigned = False
+            b = self.buffer.extract()
+
+            # if config.MSR and any(
+            #         [b.base_route == [int(x.uid) for x in y.hops]
+            #          for y in self.route_table[b.destination]]
+            # ):
+            #     for route in self.route_table[b.destination]:
+            #         if b.base_route == [int(x.uid) for x in route.hops]:
+            #             # Add the bundle-route pair to the send_list for the "next node"
+            #             self.outbound_queues[route.hops[0].to].append((b, route))
+            #
+            #             # Update the resources on the selected route
+            #             self.resource_consumption(
+            #                 b.size,
+            #                 route
+            #             )
+            #             break
+            #     continue
+
+            for route in self.route_table[b.dst]:
+
+                # If any of the nodes along this route are in the "excluded nodes"
+                # list, then we shouldn't assign it along this route
+                # TODO in CGR, this simply looks at the "next node" rather than the
+                #  receiving node in all hops, but why send the bundle along a route that
+                #  includes a node it shouldn't be routed via??
+                # if any(hop.to in b.excluded_nodes for hop in route.hops):
+                #     continue
+
+                # if the route is not of higher value than the current best
+                # route, break from for loop as none of the others will be better
+                # TODO change this if converting to generic value rather than arrival time
+                if route.bdt > b.deadline:
+                    continue
+
+                # Check each of the hops and make sure the bundle can actually traverse
+                # that hop based on the current time and the end time of the hop
+                # TODO this should really take into account the backlog over each
+                #  contact and the first & last byte transmission times for this
+                #  bundle. Currently, we assume that we can traverse the contact IF it
+                #  ends after the current time, however in reality there's more to it
+                #  than this
+                for hop in route.hops:
+                    if hop.end <= env.now:
+                        continue
+
+                # If this route cannot accommodate the bundle, skip
+                if route.volume < b.size:
+                    continue
+
+                assigned = True
+                # b.base_route = [int(x.uid) for x in route.hops]
+
+                # Add the bundle-route pair to the send_list for the bundle's "next node"
+                self.outbound_queues[route.hops[0].to].append(b)
+
+                # Update the resources on the selected route
+                # self.resource_consumption(
+                #     b.size,
+                #     route
+                # )
+                break
+
+            if not assigned:
+                self.drop_list.append(b)
