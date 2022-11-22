@@ -9,20 +9,19 @@ from pubsub import pub
 from node import Node
 from routing import Contact, cgr_yens
 from scheduling import Scheduler
-from bundleMgmt import Buffer, Bundle
-
-
-def contact_generator(sim, cp, nodes):
-	while cp:
-		contact = cp.pop(0)
-		yield sim.add_event(contact.start - sim.now)
-		nodes[contact.frm].contact_start(contact.to, sim.now)
+from bundles import Buffer, Bundle
 
 
 def generate_random_bundles(num_bundles, source, destinations):
 	bundles = []
-	for b in range(num_bundles):
-		bundles.append(Bundle(source, random.choice(destinations)))
+	for b in range(random.randint(*num_bundles)):
+		bundles.append(
+			Bundle(
+				source,
+				random.choice(destinations),
+				size=random.randint(*[1, 3])
+			)
+		)
 	return bundles
 
 
@@ -32,8 +31,8 @@ def init_nodes(num_nodes, cp):
 		node = Node(
 			n_uid,
 			buffer=Buffer(100),
-			contact_plan=cp,
-			outbound_q={x: [] for x in range(num_nodes)}
+			outbound_queues={x: [] for x in range(num_nodes)},
+			contact_plan=cp
 		)
 
 		# Subscribe to any published messages that indicate a bundle has been sent to
@@ -41,13 +40,13 @@ def init_nodes(num_nodes, cp):
 		pub.subscribe(node.bundle_receive, str(n_uid) + "bundle")
 
 		bundles = generate_random_bundles(
-			5,
+			[5, 10],
 			n_uid,
 			[x for x in range(num_nodes) if x != n_uid]
 		)
 
 		for b in bundles:
-			node.outbound_q[b.dst].append(b)
+			node.outbound_queues[b.dst].append(b)
 
 		node_dict[n_uid] = node
 

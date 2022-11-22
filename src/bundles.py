@@ -41,6 +41,9 @@ class Buffer:
 		"""
 		return self.bundles.pop(0) if self.bundles else None
 
+	def is_empty(self):
+		return True if not self.bundles else False
+
 
 @dataclass
 class Bundle:
@@ -56,6 +59,13 @@ class Bundle:
 	custody: bool = False
 	fragment: bool = True
 	sender: int = 0
+	created_at: int = 0
 
 	def __post_init__(self):
 		self.evc = max(self.size * 1.03, 100)
+
+	def __repr__(self):
+		return "Bundle: Destination %d | Deadline %d" % (
+			self.dst,
+			self.deadline
+		)
