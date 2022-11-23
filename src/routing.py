@@ -14,7 +14,7 @@ class Contact:
     end: int
     rate: int = 1
     confidence: int = 1
-    owlt: float = 1
+    owlt: float = 0
     # route search working area
     arrival_time: int = sys.maxsize
     visited: bool = False
@@ -150,7 +150,7 @@ def cgr_yens(src, dest, t_now, num_routes, contact_plan):
 
     # Root contact is the connection to self that acts as the source vertex in the
     # Contact Graph
-    root = Contact(sys.maxsize, src, src, t_now, sys.maxsize, sys.maxsize)
+    root = Contact(src, src, t_now, sys.maxsize, sys.maxsize)
     root.arrival_time = t_now
 
     # reset contacts

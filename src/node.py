@@ -58,10 +58,12 @@ class Node:
             bundle = self.outbound_queues[contact.to].pop(0)
             send_time = bundle.size / contact.rate
             if contact.end - env.now >= send_time:
-                self.bundle_send(bundle, contact.to)
+                env.process(self.bundle_send(env, bundle, contact.to,
+                                             contact.owlt+send_time))
                 # Halt until the bundle has been sent
+                print(f"bundle sent from {self.uid} to {contact.to} at time {env.now}, "
+                      f"size {bundle.size}, total delay {contact.owlt + send_time}")
                 yield env.timeout(send_time)
-                print(f"bundle sent from {self.uid} to {contact.to} at time {env.now}")
             else:
                 failed_bundles.append(bundle)
 
@@ -72,7 +74,7 @@ class Node:
         for b in failed_bundles + self.outbound_queues[contact.to]:
             self.buffer.append(b)
 
-    def bundle_send(self, b, n):
+    def bundle_send(self, env, b, n, delay):
         """
         Send bundle b to node n at time t_now
 
@@ -80,16 +82,20 @@ class Node:
         In addition to this, if more bundles are awaiting transmission, a new bundle
         send process is added to the event queue
         """
-        # b.excluded_nodes.append(self.uid)
-        b.sender = self.uid
+        while True:
+            # b.excluded_nodes.append(self.uid)
+            b.sender = self.uid
 
-        # Publish message so that the revieving node picks up the bundle
-        pub.sendMessage(
-            str(n) + "bundle",
-            bundle=b
-        )
+            # Publish message so that the receiving node picks up the bundle
+            yield env.timeout(delay)
+            pub.sendMessage(
+                str(n) + "bundle",
+                env=env,
+                bundle=b,
+            )
+            break
 
-    def bundle_receive(self, bundle):
+    def bundle_receive(self, env, bundle):
         """
         Begin to receive bundle b
 
@@ -99,6 +105,7 @@ class Node:
             # TODO Handle the case where a bundle is too large to be accommodated
             print("")
         else:
+            print(f"bundle received on {self.uid} from {bundle.sender} at {env.now}")
             self.buffer.append(bundle)
 
     def get_current_contact(self, env):
