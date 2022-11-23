@@ -30,13 +30,14 @@ def bundle_generator(env, sources, destinations):
 	while True:
 		yield env.timeout(random.expovariate(1 / BUNDLE_ARRIVAL_RATE))
 		source = random.choice(sources)
-		destination = random.choice(destinations)
+		dests = [x for x in destinations if x != source.uid]
+		destination = random.choice(dests)
 		size = random.randint(*BUNDLE_SIZE)
 		deadline = env.now + BUNDLE_TTL
 		print(f"bundle generated on node {source.uid} at time {env.now}")
 		source.buffer.append(
 			Bundle(
-				source,
+				source.uid,
 				destination,
 				size=size,
 				deadline=deadline
@@ -99,7 +100,7 @@ def create_route_tables(nodes, cp):
 			x_uid: x for x_uid, x in nodes.items() if x_uid != n_uid
 		}.items():
 			routes = cgr_yens(n_uid, other_uid, 0, 5, cp)
-			node.route_table[other_uid] = [] if not routes else deepcopy(routes)
+			node.route_table[other_uid] = [] if not routes else routes
 
 
 if __name__ == "__main__":
@@ -118,7 +119,7 @@ if __name__ == "__main__":
 
 	env.process(bundle_generator(env, nodes, nodes))
 	for node in nodes.values():
-		node.bundle_assignment(env)
+		env.process(node.bundle_assignment_controller(env))
 		env.process(node.contact_controller(env))  # Generator that initiates contacts
 		# TODO Need to add in the generators that do the regular bundle assignment and
 		#  route discovery (if applicable)

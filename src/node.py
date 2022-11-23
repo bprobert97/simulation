@@ -24,6 +24,8 @@ class Node:
     contact_plan: List = field(default_factory=lambda: [])
     route_table: Dict = field(default_factory=lambda: {})
     drop_list: List = field(default_factory=lambda: [])
+    delivered_bundles: List = field(default_factory=lambda: [])
+    bundle_assignment_repeat_time: int = 1
 
     def contact_controller(self, env):
         """
@@ -101,14 +103,25 @@ class Node:
         if self.buffer.capacity_remaining < bundle.size:
             # TODO Handle the case where a bundle is too large to be accommodated
             print("")
-        else:
-            print(f"bundle received on {self.uid} from {bundle.sender} at {env.now}")
-            self.buffer.append(bundle)
+            return
+
+        if bundle.dst == self.uid:
+            print(f"bundle delivered to {self.uid} from {bundle.sender} at {env.now}")
+            self.delivered_bundles.append(bundle)
+            return
+
+        print(f"bundle received on {self.uid} from {bundle.sender} at {env.now}")
+        self.buffer.append(bundle)
 
     def get_current_contact(self, env):
         for contact in self.contact_plan:
             if contact.start > env.now and contact.frm == self.uid:
                 return contact
+
+    def bundle_assignment_controller(self, env):
+        while True:
+            self.bundle_assignment(env)
+            yield env.timeout(self.bundle_assignment_repeat_time)
 
     def bundle_assignment(self, env):
         """
@@ -139,9 +152,7 @@ class Node:
             #             )
             #             break
             #     continue
-
             for route in self.route_table[b.dst]:
-
                 # If any of the nodes along this route are in the "excluded nodes"
                 # list, then we shouldn't assign it along this route
                 # TODO in CGR, this simply looks at the "next node" rather than the
