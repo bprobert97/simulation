@@ -68,7 +68,7 @@ def init_nodes(num_nodes, cp):
 
 
 def init_contact_plan():
-	return [
+	cp = [
 		Contact(0, 1, 0, sys.maxsize),
 		Contact(0, 2, 0, sys.maxsize),
 		Contact(0, 3, 0, sys.maxsize),
@@ -80,9 +80,14 @@ def init_contact_plan():
 		Contact(3, 4, 24, 26, owlt=1),
 		Contact(4, 3, 25, 26, owlt=1)
 	]
+	return cp
 
 
 def create_route_tables(nodes, cp):
+	"""
+	Route Table creation - Invokes Yen's CGR algorithm to discover routes between
+	node-pairs, stores them in a dictionary and updates the route table on each node
+	"""
 	for node in nodes:
 		for other in [
 			x for x in nodes if x.uid != node.uid
@@ -100,6 +105,7 @@ if __name__ == "__main__":
 	tasks according to their assignation (i.e. bundle acquisition). Acquired bundles 
 	are routed through the network via either CGR or MSR, as specified.
 	"""
+	random.seed(0)
 	env = simpy.Environment()
 	cp = init_contact_plan()
 	scheduler = Node(
@@ -110,7 +116,6 @@ if __name__ == "__main__":
 	)
 	nodes = init_nodes(NUM_NODES, cp)
 	create_route_tables(nodes, cp)
-
 	env.process(bundle_generator(env, nodes, nodes))
 	for node in [scheduler] + nodes:
 		env.process(node.bundle_assignment_controller(env))
