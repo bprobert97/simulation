@@ -60,9 +60,10 @@ class Node:
             if contact.end - env.now >= send_time:
                 env.process(self.bundle_send(env, bundle, contact.to,
                                              contact.owlt+send_time))
-                # Halt until the bundle has been sent
                 print(f"bundle sent from {self.uid} to {contact.to} at time {env.now}, "
                       f"size {bundle.size}, total delay {contact.owlt + send_time}")
+
+                # Wait until the bundle has been sent
                 yield env.timeout(send_time)
             else:
                 failed_bundles.append(bundle)
@@ -76,23 +77,19 @@ class Node:
 
     def bundle_send(self, env, b, n, delay):
         """
-        Send bundle b to node n at time t_now
+        Send bundle b to node n
 
         This process involves transmitting the bundle, at the transmission data rate.
         In addition to this, if more bundles are awaiting transmission, a new bundle
         send process is added to the event queue
         """
         while True:
-            # b.excluded_nodes.append(self.uid)
             b.sender = self.uid
 
-            # Publish message so that the receiving node picks up the bundle
+            # Wait until the whole message has arrived and then invoke the "receive"
+            # method on the receiving node
             yield env.timeout(delay)
-            pub.sendMessage(
-                str(n) + "bundle",
-                env=env,
-                bundle=b,
-            )
+            pub.sendMessage(str(n) + "bundle", env=env, bundle=b)
             break
 
     def bundle_receive(self, env, bundle):

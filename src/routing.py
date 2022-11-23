@@ -299,7 +299,11 @@ def contact_review(contact_plan, current, dest, final_contact, bdt):
     :return final_contact:
     :return bdt:
     """
-    contact_plan_hash = {}
+    # FIXME Shouldn't need to initialise the contact_plan_hash like this if we have a
+    #  full contact plan. This is only required in the odd case where one of the nodes
+    #  isn't actually involved in any contacts. In that case, they don't get added to
+    #  the CPH and therefore the root contact (i.e. "current" may cause a failure)
+    contact_plan_hash = {current.frm: []}
     for contact in contact_plan:
         if contact.frm not in contact_plan_hash:
             contact_plan_hash[contact.frm] = []
@@ -316,7 +320,6 @@ def contact_review(contact_plan, current, dest, final_contact, bdt):
             continue
         if contact.end <= current.arrival_time:
             continue
-        # TODO Check should this be <= min bundle size?
         # TODO Should we even have this here at all? This will discard routes that
         #  don't have any capacity (right now), but what if, in the future,
         #  with un-assign a bundle that uses this contact? This contact would then

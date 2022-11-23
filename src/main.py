@@ -18,19 +18,30 @@ NUM_NODES = 4
 NODE_BUFFER_CAPACITY = 100
 NUM_BUNDLES = [5, 10]
 BUNDLE_SIZE = [1, 3]
+BUNDLE_ARRIVAL_RATE = .5  # Mean number of bundles to be generated per unit time
+BUNDLE_TTL = 100  # Time to live for a bundle
 
 
-def generate_random_bundles(num_bundles, source, destinations):
-	bundles = []
-	for b in range(random.randint(*num_bundles)):
-		bundles.append(
+def bundle_generator(env, sources, destinations):
+	"""
+	Process that generates bundles on nodes according to some probability for the
+	duration of the simulation
+	"""
+	while True:
+		yield env.timeout(random.expovariate(1 / BUNDLE_ARRIVAL_RATE))
+		source = random.choice(sources)
+		destination = random.choice(destinations)
+		size = random.randint(*BUNDLE_SIZE)
+		deadline = env.now + BUNDLE_TTL
+		print(f"bundle generated on node {source.uid} at time {env.now}")
+		source.buffer.append(
 			Bundle(
 				source,
-				random.choice(destinations),
-				size=random.randint(*BUNDLE_SIZE)
+				destination,
+				size=size,
+				deadline=deadline
 			)
 		)
-	return bundles
 
 
 def init_nodes(num_nodes, cp):
@@ -44,17 +55,19 @@ def init_nodes(num_nodes, cp):
 		)
 
 		# Subscribe to any published messages that indicate a bundle has been sent to
-		# this node. This will execute the bundle_receive() method on board the node
+		# this node. This will execute the bundle_receive() method on board the
+		# receiving node at the time when the FULL bundle has been received, including
+		# any delay incurred through travel (OWLT)
 		pub.subscribe(n.bundle_receive, str(n_uid) + "bundle")
 
-		bundles = generate_random_bundles(
-			NUM_BUNDLES,
-			n_uid,
-			[x for x in range(num_nodes) if x != n_uid]
-		)
-
-		for b in bundles:
-			n.buffer.append(b)
+		# bundles = bundle_generator(
+		# 	NUM_BUNDLES,
+		# 	n_uid,
+		# 	[x for x in range(num_nodes) if x != n_uid]
+		# )
+		#
+		# for b in bundles:
+		# 	n.buffer.append(b)
 
 		node_dict[n_uid] = n
 
@@ -103,6 +116,7 @@ if __name__ == "__main__":
 	nodes = init_nodes(NUM_NODES, cp)
 	create_route_tables(nodes, cp)
 
+	env.process(bundle_generator(env, nodes, nodes))
 	for node in nodes.values():
 		node.bundle_assignment(env)
 		env.process(node.contact_controller(env))  # Generator that initiates contacts
