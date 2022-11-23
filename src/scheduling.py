@@ -4,19 +4,19 @@ import sys
 from dataclasses import dataclass, field
 from typing import List
 
-from routing import Route, Contact
+from routing import Route, Contact, dijkstra_cgr
 
 
 @dataclass
 class Request:
     target_id: int
-    target_lat: float
-    target_lon: float
-    target_alt: float
+    target_lat: float = None
+    target_lon: float = None
+    target_alt: float = None
     time_acq: int = sys.maxsize
     time_del: int = sys.maxsize
-    priority: int = 1
-    destination: int = 9999999
+    priority: int = 0
+    destination: int = 999
     data_volume: int = 5
     time_created: int = None
 
@@ -40,7 +40,7 @@ class Task:
         self.assignee = self.del_path.hops[0].frm
         self.time_acquire = self.acq_path.bdt
         self.time_deliver = self.del_path.bdt
-        self.delivery_route = [int(x.uid) for x in self.del_path.hops]
+        # self.delivery_route = [int(x.uid) for x in self.del_path.hops]
 
     @property
     def status(self):
@@ -56,43 +56,48 @@ class Scheduler:
     """The Scheduler is an object that enables a node to carry out Contact Graph
     Scheduling operations. I.e. it can receive requests and process them to create
     tasks, which are added to a task table"""
+    uid: int
     task_table: List = field(default_factory=lambda: [])
     contact_plan: List = field(default_factory=lambda: [])
     request_queue: List = field(default_factory=lambda: [])
 
-    def request_received(self, request):
+    def request_received(self, request, t_now):
         """
         When a request is received, it gets added to the request queue
-        :param request:
-        :return:
         """
         self.request_queue.append(request)
 
+        # TODO this will trigger the request processing immediately having received a
+        #  request, however we may want to set this process to be periodic
+        self.process_requests(t_now)
+
     def process_requests(self, curr_time):
-        """Process each request in the queue, by identifying the assignee-target contact
+        """
+        Process each request in the queue, by identifying the assignee-target contact
         that will collect the payload, creating a Task for this and adding it to the table
         :return:
         """
         while self.request_queue:
             request = self.request_queue.pop(0)
             # Adjust the contact plan to include contacts with the target node
-            self._add_target_contacts(request)
+            # self._add_target_contacts(request)
             task = self.schedule_task(request, curr_time)
 
             # If a task has been created (i.e. there is a feasible acquisition and
             # delivery opportunity), add the task to the table. Else, that request
             # cannot be fulfilled so log something to that effect
             if task:
-                self.task_table.add_task(task)
+                self.task_table.append(task)
             else:
-                pass  # TODO add in something that logs an request cannot be met
-            self._remove_contact_from_cp(request.target_id)
+                print(f"Request for {request.target_id}, submitted at "
+                      f"{request.time_created} cannot be processed")
+            # self._remove_contact_from_cp(request.target_id)
 
     def schedule_task(self, request, curr_time):
         """
         Identify the contact, between a satellite & target, in which the request should
-        be fulfilled and return a task that includes the necessary info. The process to
-        this is effectively an open-ended version of Yen's algorithm, whereby routes to
+        be fulfilled and return a task that includes the necessary info. The process to do
+        this is effectively two-executions of Dijkstra's algorithm, whereby routes to
         the acquisition opportunity are found, followed immediately by finding the
         shortest route to the destination from that point.
 
@@ -102,15 +107,10 @@ class Scheduler:
         :param request:
         :return:
         """
-        # Execute Yen's algorithm, using the Contact Graph as the network, to identify
-        # the preferred assignee and time to fulfill the request. The root node is a
-        # continuous contact from the Scheduler to itself and the destination is a
-        # virtual contact between the target and itself, to which all contacts ending
-        # at the target are connected.
         # TODO setting the UID of the Scheduler to = 1
         acq_path, del_path = self._cgs_routing(self.uid, request, curr_time)
         if acq_path:
-            for hop in del_path.hops[:-1]:
+            for hop in del_path.hops:
                 hop.volume -= request.data_volume
 
             # Create a "task" object, which outlines who will acquire the data, from where,
@@ -118,7 +118,7 @@ class Scheduler:
             # applicable) and the priority of the data being acquired. The "planned"
             # delivery route is also included, but that may not be the actual route
             # taken by the data
-            return Task(request, acq_path, del_path)
+            return Task(request, curr_time, acq_path, del_path)
 
         else:
             # If no assignee has been identified, then it means there's no feasible way the
@@ -159,12 +159,16 @@ class Scheduler:
 
         # Root contact is the connection to self that acts as the source vertex in the
         # Contact Graph
-        root = Contact(0, root, root, curr_time, sys.maxsize, sys.maxsize)
+        root = Contact(root, root, curr_time, sys.maxsize, sys.maxsize)
         root.arrival_time = curr_time
 
         while True:
             # Find the lowest cost acquisition path using Dijkstra
-            path_acq = self._dijkstra(root, request.target_id, request.time_acq)
+            # TODO This is using the Dijkstra function from the routing.py file. There
+            #  must be a cleaner way to use this, e.g. having a "Router" object that is
+            #  an attribute on both this scheduler and the node objects??
+            path_acq = dijkstra_cgr(self.contact_plan, root, request.target_id,
+                                    request.time_acq)
 
             if not path_acq or path_acq.bdt >= earliest_delivery_time:
                 break
@@ -175,7 +179,6 @@ class Scheduler:
 
             # Create a root contact from which we can find a delivery path
             root_delivery = Contact(
-                0,
                 path_acq.hops[-1].frm,
                 path_acq.hops[-1].frm,
                 path_acq.bdt,
@@ -185,9 +188,10 @@ class Scheduler:
             root_delivery.arrival_time = path_acq.bdt
 
             # Identify best route to the destination from our current acquiring node
-            path_del = self._dijkstra(
+            path_del = dijkstra_cgr(
+                self.contact_plan,
                 root_delivery,
-                request.destinati       ,
+                request.destination,
                 request.time_del,
                 request.data_volume
             )
@@ -210,11 +214,13 @@ class Scheduler:
         return path_acq_selected, path_del_selected
 
     def _dijkstra(self, root, dest, deadline, size=0):
+        # TODO We should be able to reuse the CGR Dijkstra code, since it's VERY
+        #  similar to this
         """
-		Finds the lowest cost Route from the current node to a destination node,
-		arriving before some deadline
-		:return:
-		"""
+        Finds the lowest cost Route from the current node to a destination node,
+        arriving before some deadline
+        :return:
+        """
         # TODO Consider restricting which contacts are added to the CG, since for a
         #  long time horizon with many contacts, this could become unnecessarily large.
         # Set of contacts that have been visited during the contact plan search

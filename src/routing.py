@@ -10,13 +10,13 @@ from typing import List
 class Contact:
     frm: int
     to: int
-    start: int
-    end: int
-    rate: int = 1
-    confidence: int = 1
-    owlt: float = 0
+    start: int | float
+    end: int | float
+    rate: int | float = 1
+    confidence: float = 1.0
+    owlt: float = 0.0
     # route search working area
-    arrival_time: int = sys.maxsize
+    arrival_time: int | float = sys.maxsize
     visited: bool = False
     visited_nodes: List = field(default_factory=lambda: [])
     predecessor: int = 0
@@ -24,10 +24,10 @@ class Contact:
     suppressed: bool = False
     suppressed_next_hop: List = field(default_factory=lambda: [])
     # forwarding working area
-    first_byte_tx_time: int = None
-    last_byte_tx_time: int = None
-    last_byte_arr_time: int = None
-    effective_volume_limit: int = None
+    first_byte_tx_time: int | float = None
+    last_byte_tx_time: int | float = None
+    last_byte_arr_time: int | float = None
+    effective_volume_limit: int | float = None
 
     def __post_init__(self):
         self.volume = self.rate * (self.end - self.start)
@@ -237,7 +237,7 @@ def cgr_yens(src, dest, t_now, num_routes, contact_plan):
     return routes
 
 
-def dijkstra_cgr(contact_plan, root, dest):
+def dijkstra_cgr(contact_plan, root, dest, deadline=sys.maxsize, size=0):
     """
     Finds the lowest cost Route from the current node to a destination node
     :return:
@@ -262,8 +262,8 @@ def dijkstra_cgr(contact_plan, root, dest):
         current.visited_nodes.append(current.to)
 
     while True:
-        final, bdt = contact_review(contact_plan, current, dest, final, bdt)
-        next_contact = contact_selection(contact_plan, bdt)
+        final, bdt = contact_review(contact_plan, current, dest, final, bdt, deadline, size)
+        next_contact = contact_selection(contact_plan, bdt, deadline)
 
         if not next_contact:
             break
@@ -284,7 +284,8 @@ def dijkstra_cgr(contact_plan, root, dest):
     return route
 
 
-def contact_review(contact_plan, current, dest, final_contact, bdt):
+def contact_review(contact_plan, current, dest, final_contact, bdt,
+                   deadline=sys.maxsize, size=0):
     """
     Review each contact that is adjacent to the current one (i.e. the sending node
     of the next contact = the receiving node of the current one) and update the
@@ -320,19 +321,14 @@ def contact_review(contact_plan, current, dest, final_contact, bdt):
             continue
         if contact.end <= current.arrival_time:
             continue
-        # TODO Should we even have this here at all? This will discard routes that
-        #  don't have any capacity (right now), but what if, in the future,
-        #  with un-assign a bundle that uses this contact? This contact would then
-        #  become available, but we'd have discarded... We'll capture the lack of
-        #  resource by the Route property anyway, so I think this should be
-        #  included. If we ARE going to include it, then we should really do
-        #  something similar for the storage resource. Perhaps a Contact has a
-        #  similar attribute to Routes, which simply captures the more general
-        #  "resource" availability
-        if contact.volume <= 0:
+        if contact.volume < size:
             continue
         # TODO remove this as should never be the case I don't think
         if current.frm == contact.to and current.to == contact.frm:
+            continue
+        # TODO this is the absolute best case arrival time, really should be
+        #  considering the first-byte-transmission time here, rather than "start"
+        if contact.start+contact.owlt > deadline:
             continue
 
         # Calculate arrival time (cost)
@@ -343,9 +339,6 @@ def contact_review(contact_plan, current, dest, final_contact, bdt):
             current.arrival_time + contact.owlt,
             contact.start + contact.owlt
         )
-
-        # Calculate the cost associated with reaching this contact via this route
-        # cost = current.cost + (arrvl_time - current.arrival_time) * s_cost + t_cost
 
         # Update cost if better or equal and update other parameters in
         # next contact so that we assume we're coming from the current
@@ -359,23 +352,17 @@ def contact_review(contact_plan, current, dest, final_contact, bdt):
 
             # Mark if destination reached
             if contact.to == dest and contact.arrival_time < bdt:
-                # if contact.to == dest and contact.cost < lcr:
                 bdt = contact.arrival_time
-                # lcr = contact.cost
                 final_contact = contact
-                # TODO Can we break here if just looking at min latency? We've
-                #  reached the destination and have identified all of the other
-                #  contacts that happen before this
 
     # This completes our assessment of the current contact
     current.visited = True
     return final_contact, bdt
 
 
-def contact_selection(contact_plan, bdt):
+def contact_selection(contact_plan, bdt, deadline):
     # Determine best next contact among all in contact plan
     earliest_arr_t = sys.maxsize
-    # lowest_cost = sys.maxsize
     next_contact = None
 
     for contact in contact_plan:
@@ -392,13 +379,10 @@ def contact_selection(contact_plan, bdt):
         # If we know there is another, better contact, break from the search as
         # nothing else in the CP is going to be better
         if bdt < contact.arrival_time < sys.maxsize-1:
-            # if lcr < contact.cost < sys.maxsize - 1:
             break
 
         if contact.arrival_time < earliest_arr_t:
-            # if contact.cost < lowest_cost:
             earliest_arr_t = contact.arrival_time
-            # lowest_cost = contact.cost
             next_contact = contact
 
     return next_contact

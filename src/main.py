@@ -9,7 +9,7 @@ from pubsub import pub
 
 from node import Node
 from routing import Contact, cgr_yens
-from scheduling import Scheduler
+from scheduling import Scheduler, Request
 from bundles import Buffer, Bundle
 
 
@@ -18,9 +18,31 @@ SCHEDULER_BUFFER_CAPACITY = 1000
 NUM_NODES = 4
 NODE_BUFFER_CAPACITY = 100
 NUM_BUNDLES = [5, 10]
+REQUEST_ARRIVAL_RATE = 0.2
+TARGET_UID = 1000
 BUNDLE_SIZE = [1, 3]
-BUNDLE_ARRIVAL_RATE = .5  # Mean number of bundles to be generated per unit time
-BUNDLE_TTL = 100  # Time to live for a bundle
+BUNDLE_ARRIVAL_RATE = 0.2  # Mean number of bundles to be generated per unit time
+BUNDLE_TTL = 25  # Time to live for a
+
+
+def requests_generator(env, nodes, scheduler):
+	"""
+	Generate requests that get submitted to a scheduler where they are processed into
+	tasks, added to a task table, and distributed through the network for execution by
+	nodes.
+	"""
+	while True:
+		# yield env.timeout(random.expovariate(1 / REQUEST_ARRIVAL_RATE))
+		yield env.timeout(0)
+		request = Request(
+			TARGET_UID,
+			destination=4,  # random.choice(nodes),
+			data_volume=1,  # random.randint(*BUNDLE_SIZE),
+			time_created=env.now
+		)
+		scheduler.scheduler.request_received(request, env.now)
+		scheduler.task_table = scheduler.scheduler.task_table
+		break
 
 
 def bundle_generator(env, sources, destinations):
@@ -53,7 +75,7 @@ def init_nodes(num_nodes, cp):
 			n_uid,
 			buffer=Buffer(NODE_BUFFER_CAPACITY),
 			outbound_queues={x: [] for x in range(1, num_nodes+1)},
-			contact_plan=cp
+			contact_plan=deepcopy(cp)
 		)
 
 		# Subscribe to any published messages that indicate a bundle has been sent to
@@ -68,13 +90,18 @@ def init_nodes(num_nodes, cp):
 
 
 def init_contact_plan():
+	"""
+	Create a contact plan. This must include contacts between the Scheduler (UID=0) and
+	remote nodes (UID=[0, 999]) and also between remote nodes and the target (UID=1000).
+	"""
 	cp = [
-		Contact(0, 1, 0, sys.maxsize),
-		Contact(0, 2, 0, sys.maxsize),
-		Contact(0, 3, 0, sys.maxsize),
-		Contact(0, 4, 0, sys.maxsize),
+		Contact(0, 1, .1, sys.maxsize),
+		Contact(0, 2, .2, sys.maxsize),
+		Contact(0, 3, .3, sys.maxsize),
+		Contact(0, 4, .4, sys.maxsize),
 		Contact(1, 2, 5, 10, owlt=1),
 		Contact(2, 1, 6, 12, owlt=1),
+		Contact(3, 1000, 22, 22),  # Contact with the target
 		Contact(1, 3, 15, 20, owlt=1),
 		Contact(3, 1, 15, 21, owlt=1),
 		Contact(3, 4, 24, 26, owlt=1),
@@ -112,11 +139,13 @@ if __name__ == "__main__":
 		SCHEDULER_ID,
 		buffer=Buffer(SCHEDULER_BUFFER_CAPACITY),
 		contact_plan=cp,
-		scheduler=Scheduler(contact_plan=cp)
+		scheduler=Scheduler(SCHEDULER_ID, contact_plan=cp),
+		outbound_queues={x: [] for x in range(1, NUM_NODES + 1)}
 	)
 	nodes = init_nodes(NUM_NODES, cp)
 	create_route_tables(nodes, cp)
-	env.process(bundle_generator(env, nodes, nodes))
+	# env.process(bundle_generator(env, nodes, nodes))
+	env.process(requests_generator(env, nodes, scheduler))
 	for node in [scheduler] + nodes:
 		env.process(node.bundle_assignment_controller(env))
 		env.process(node.contact_controller(env))  # Generator that initiates contacts
