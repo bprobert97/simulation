@@ -28,6 +28,10 @@ class Node:
     delivered_bundles: List = field(default_factory=lambda: [])
     bundle_assignment_repeat_time: int = 1
 
+    def __post_init__(self):
+        # TODO will need to update this IF we update the contact plan
+        self.contact_plan_self = [c for c in self.contact_plan if c.frm == self.uid]
+
     def contact_controller(self, env):
         """
         Generator that triggers the start and end of contacts according to the contact
@@ -37,8 +41,8 @@ class Node:
         contact procedure so that, if appropriate, bundles are forwarded to the current
         neighbour. Once the contact has concluded, we exit from this contact
         """
-        while self.get_current_contact(env):
-            next_contact = self.get_current_contact(env)
+        while self.contact_plan_self:
+            next_contact = self.contact_plan_self.pop(0)
             time_to_contact_start = next_contact.start - env.now
             # Delay until the contact starts and then resume
             yield env.timeout(time_to_contact_start)
@@ -156,14 +160,6 @@ class Node:
 
         print(f"bundle received on {self.uid} from {bundle.sender} at {env.now}")
         self.buffer.append(bundle)
-
-    def get_current_contact(self, env):
-        for contact in self.contact_plan:
-            # FIXME This will miss a contact that starts at EXACTLY the same time as
-            #  another contact, since the next time we reach here, we'll be at the
-            #  contact start time, such that it wont be GT env.now
-            if contact.start > env.now and contact.frm == self.uid:
-                return contact
 
     def bundle_assignment_controller(self, env):
         while True:

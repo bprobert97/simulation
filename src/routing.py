@@ -43,6 +43,23 @@ class Contact:
         self.suppressed = False
         self.suppressed_next_hop = []
 
+    def __lt__(self, other):
+        # 1st priority is the start time. An earlier start time is deemed higher priority
+        if self.start < other.start:
+            return True
+
+        # 2nd priority is duration, a shorter contact is deemed higher priority
+        elif self.start == other.start:
+            if self.end - self.start < other.end - other.start:
+                return True
+
+            # 3rd priority is confidence level, where higher confidence = higher priority
+            elif self.end - self.start == other.end - other.start:
+                if self.confidence > other.confidence:
+                    return True
+
+        return False
+
     def __repr__(self):
 
         # replace with inf
@@ -52,9 +69,13 @@ class Contact:
             end = self.end
 
         # mav in %
-        volume = 100 * min(self.mav) / self.volume
+        if self.volume <= 0:
+            volume = 0
+        else:
+            volume = 100 * min(self.mav) / self.volume
 
-        return "%s->%s(%s-%s,d%s)[mav%d%%]" % (self.frm, self.to, self.start, end, self.owlt, volume)
+        return "%s->%s (%s-%s, d%s) [mav%d%%]" % (self.frm, self.to, self.start, end,
+                                                self.owlt, volume)
 
 
 class Route:

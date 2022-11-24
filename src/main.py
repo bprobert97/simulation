@@ -95,18 +95,18 @@ def init_contact_plan():
 	remote nodes (UID=[0, 999]) and also between remote nodes and the target (UID=1000).
 	"""
 	cp = [
-		Contact(0, 1, .1, sys.maxsize),
-		Contact(0, 2, .2, sys.maxsize),
-		Contact(0, 3, .3, sys.maxsize),
-		Contact(0, 4, .4, sys.maxsize),
+		Contact(SCHEDULER_ID, 2, 0, 4),
 		Contact(1, 2, 5, 10, owlt=1),
 		Contact(2, 1, 6, 12, owlt=1),
-		Contact(3, 1000, 22, 22),  # Contact with the target
 		Contact(1, 3, 15, 20, owlt=1),
 		Contact(3, 1, 15, 21, owlt=1),
+		Contact(3, TARGET_UID, 22, 22),  # Contact with the target
 		Contact(3, 4, 24, 26, owlt=1),
 		Contact(4, 3, 25, 26, owlt=1)
 	]
+
+	cp.sort()
+
 	return cp
 
 
