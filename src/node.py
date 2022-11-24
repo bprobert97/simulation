@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
+
 import sys
 from dataclasses import dataclass, field
 from typing import List, Dict
-from collections import deque
+from copy import deepcopy
 
 from pubsub import pub
 
 from scheduling import Scheduler
 from bundles import Buffer, Bundle
-from routing import cgr_yens
 
 
 @dataclass
@@ -23,9 +23,14 @@ class Node:
     outbound_queues: Dict = field(default_factory=lambda: {})
     contact_plan: List = field(default_factory=lambda: [])
     route_table: Dict = field(default_factory=lambda: {})
+    task_table: List = field(default_factory=lambda: [])
     drop_list: List = field(default_factory=lambda: [])
     delivered_bundles: List = field(default_factory=lambda: [])
     bundle_assignment_repeat_time: int = 1
+
+    def __post_init__(self):
+        # TODO will need to update this IF we update the contact plan
+        self.contact_plan_self = [c for c in self.contact_plan if c.frm == self.uid]
 
     def contact_controller(self, env):
         """
@@ -36,12 +41,34 @@ class Node:
         contact procedure so that, if appropriate, bundles are forwarded to the current
         neighbour. Once the contact has concluded, we exit from this contact
         """
-        while self.get_current_contact(env):
-            next_contact = self.get_current_contact(env)
+        while self.contact_plan_self:
+            next_contact = self.contact_plan_self.pop(0)
             time_to_contact_start = next_contact.start - env.now
             # Delay until the contact starts and then resume
             yield env.timeout(time_to_contact_start)
-            env.process(self.contact_procedure(env, next_contact))
+            if next_contact.to >= 1000:
+                self.target_procedure(env.now, next_contact.to)
+            else:
+                env.process(self.contact_procedure(env, next_contact))
+
+    def target_procedure(self, t_now, target):
+        """
+        Procedure to follow if we're in contact w/ a Target node
+        """
+        for task in self.task_table:
+            if task.time_acquire == t_now and task.target == target:
+                self.buffer.append(
+                    Bundle(
+                        target,
+                        task.destination,
+                        size=task.size,
+                        deadline=task.deadline_delivery,
+                        created_at=t_now
+                    )
+                )
+                print(f"Bundle acquired on node {self.uid} at time {t_now} from target "
+                      f"{target}")
+                return
 
     def contact_procedure(self, env, contact):
         """
@@ -50,6 +77,7 @@ class Node:
         """
         failed_bundles = []
         print(f"contact started on {self.uid} with {contact.to} at {env.now}")
+        self.handshake(env, contact.to, contact.owlt)
         while env.now < contact.end:
             if not self.outbound_queues[contact.to]:
                 # If the outbound queue for this node is empty, wait and check again
@@ -60,8 +88,15 @@ class Node:
             bundle = self.outbound_queues[contact.to].pop(0)
             send_time = bundle.size / contact.rate
             if contact.end - env.now >= send_time:
-                env.process(self.bundle_send(env, bundle, contact.to,
-                                             contact.owlt+send_time))
+                bundle.sender = self.uid
+                env.process(
+                    self.bundle_send(
+                        env,
+                        bundle,
+                        contact.to,
+                        contact.owlt+send_time
+                    )
+                )
                 print(f"bundle sent from {self.uid} to {contact.to} at time {env.now}, "
                       f"size {bundle.size}, total delay {contact.owlt + send_time}")
 
@@ -77,7 +112,14 @@ class Node:
         for b in failed_bundles + self.outbound_queues[contact.to]:
             self.buffer.append(b)
 
-    def bundle_send(self, env, b, n, delay):
+    def handshake(self, env, to, delay):
+        """
+        Carry out the handshake at the beginning of the contact,
+        """
+        env.process(self.bundle_send(env, deepcopy(self.task_table), to, delay, True))
+
+    @staticmethod
+    def bundle_send(env, b, n, delay, is_task_table=False):
         """
         Send bundle b to node n
 
@@ -86,20 +128,26 @@ class Node:
         send process is added to the event queue
         """
         while True:
-            b.sender = self.uid
-
             # Wait until the whole message has arrived and then invoke the "receive"
             # method on the receiving node
             yield env.timeout(delay)
-            pub.sendMessage(str(n) + "bundle", env=env, bundle=b)
+            pub.sendMessage(
+                str(n) + "bundle",
+                env=env, bundle=b, is_task_table=is_task_table
+            )
             break
 
-    def bundle_receive(self, env, bundle):
+    def bundle_receive(self, env, bundle, is_task_table=False):
         """
-        Begin to receive bundle b
+        Receive bundle from neighbouring node. This also includes the receiving of Task
+        Tables, as indicated by the flag in the args.
 
         If the bundle is too large to be accommodated, reject, else accept
         """
+        if is_task_table:
+            self._merge_task_tables(bundle)
+            return
+
         if self.buffer.capacity_remaining < bundle.size:
             # TODO Handle the case where a bundle is too large to be accommodated
             print("")
@@ -112,11 +160,6 @@ class Node:
 
         print(f"bundle received on {self.uid} from {bundle.sender} at {env.now}")
         self.buffer.append(bundle)
-
-    def get_current_contact(self, env):
-        for contact in self.contact_plan:
-            if contact.start > env.now and contact.frm == self.uid:
-                return contact
 
     def bundle_assignment_controller(self, env):
         while True:
@@ -197,3 +240,34 @@ class Node:
 
             if not assigned:
                 self.drop_list.append(b)
+
+    def _merge_task_tables(self, tt):
+        """
+        Combine the task table received from a neighbour, with one's own task table,
+        to ensure it is up-to-date
+        """
+        for task in tt:
+            present, idx = self._get_matching_task_idx(task)
+            # If the task exists in the task table, but the statuses don't match and
+            # the local task is "pending", then the other task must have been modified
+            # already, so should be updated to match
+            if present:
+                if task.status != self.task_table[idx].status and \
+                        self.task_table[idx].status == "pending":
+                    self.task_table[idx].status = task.status
+                else:
+                    continue
+            else:
+                self.task_table.append(deepcopy(task))
+
+    def _get_matching_task_idx(self, task):
+        # TODO The use of this flag avoids an issue when the idx is 0, but it feels hacky
+        flag = False
+        for idx, t in enumerate(self.task_table):
+            # If it's the same task, but the status is different, this means that
+            # there's a mismatch that needs addressing.
+            if task.target == t.target and task.assignee == t.assignee and \
+                    task.scheduled_at == t.scheduled_at:
+                flag = True
+                return flag, idx
+        return flag, None
