@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+
 import itertools
 import random
 import sys
@@ -139,7 +140,7 @@ if __name__ == "__main__":
 		SCHEDULER_ID,
 		buffer=Buffer(SCHEDULER_BUFFER_CAPACITY),
 		contact_plan=cp,
-		scheduler=Scheduler(SCHEDULER_ID, contact_plan=cp),
+		scheduler=Scheduler(SCHEDULER_ID, contact_plan=deepcopy(cp)),
 		outbound_queues={x: [] for x in range(1, NUM_NODES + 1)}
 	)
 	nodes = init_nodes(NUM_NODES, cp)
