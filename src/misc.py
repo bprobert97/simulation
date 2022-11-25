@@ -9,8 +9,6 @@ import numpy as np
 import time
 import pickle
 
-from xspancion_ui.algos.spae.source import config
-
 
 # *** GENERIC FUNCTIONS ***
 def assign_uid(uid_, low=1, high=9999999):
@@ -573,28 +571,3 @@ def greg2jd(month, day, year):
     jdn = jd + day + b + 1720994.5
 
     return jdn
-
-
-# *** LOGGING FUNCTIONS ***
-def event_print(bundle, event, frm, to, at_time):
-    if not config.DEBUG:
-        return
-    print(
-        "bundle", bundle, "has been", event, "from", frm, "to", to, "at time", at_time
-    )
-
-
-def event_print_copy(bundle, frm, on, at_time):
-    print(
-        "bundle", bundle, "has been COPIED", "from", frm, "while on board", on, "at time", at_time
-    )
-
-
-def time_print(times, event):
-    times.append(time.time())
-    print(event, times[-1] - times[0], "s")
-
-
-def save_data(filename, *args):
-    with open(filename, 'wb') as outfile:
-        [pickle.dump(x, outfile) for x in args]

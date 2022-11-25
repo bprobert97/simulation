@@ -2,7 +2,6 @@
 
 import sys
 from dataclasses import dataclass
-from collections import deque
 
 
 @dataclass

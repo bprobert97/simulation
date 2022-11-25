@@ -2,8 +2,7 @@ from math import radians, pi, sin, cos, sqrt
 
 import numpy as np
 from scipy.integrate import odeint
-
-from misc import gast, topo_to_eci,mee_to_cart, mee_to_coe, coe_to_mee
+from .misc import gast, topo_to_eci, mee_to_cart, mee_to_coe, coe_to_mee
 
 
 class GroundNode:
@@ -112,8 +111,9 @@ class GroundNode:
 
 
 class Spacecraft:
-    def __init__(self, uid=None):
+    def __init__(self, uid=0, isl_dist=1000000):
         self.uid = uid
+        self.isl_dist = isl_dist
         self.orbit = None
 
     def get_orbit(self, initial, ele_type, jd0, duration, step):

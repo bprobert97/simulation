@@ -10,9 +10,9 @@ import sys
 from math import acos, radians
 import numpy as np
 
-from misc import slant_range
-from spaceNetwork import Spacecraft, GroundNode
-from routing import Contact
+from .misc import slant_range
+from .spaceNetwork import Spacecraft, GroundNode
+from .routing import Contact
 
 
 def review_contacts(all_times, all_nodes, satellites, gateways, targets):
@@ -33,12 +33,12 @@ def review_contacts(all_times, all_nodes, satellites, gateways, targets):
     # time steps that feature a contact.
     cs = build_contact_schedule(all_nodes, edges)
 
-    # Convert the contact schedule into a sequence of NetworkX digraphs
+    # Convert the contact schedule into something...
     cs_ = init_contact_schedule(cs)
 
     # Build the Contact Plan and Network Resource Model
-    cp = build_contact_plan(cs_, all_nodes, all_times[-1])
-
+    cp = build_contact_plan(cs_)
+    cp.sort()
     return cp
 
 
@@ -103,10 +103,14 @@ def space_connectivity_matrix(
     # transmission would be possible but v would not be able to receive the signal
     vis = {}
 
+    owlt = {}
+    c = 299792458  # speed of light
+
     for u_uid, u in satellites.items():
         pos_vec[u_uid] = {}
         sep[u_uid] = {}
         vis[u_uid] = {}
+        owlt[u_uid] = {}
         v_others = {
             x: y for x, y in {
                 **targets,
@@ -122,6 +126,7 @@ def space_connectivity_matrix(
                 positions[v_uid][:, 0:3],
                 positions[u_uid][:, 0:3]
             )
+
             # Get the magnitude of this vector (i.e. the separation distance)
             sep[u_uid][v_uid] = np.linalg.norm(
                 pos_vec[u_uid][v_uid],
@@ -129,9 +134,12 @@ def space_connectivity_matrix(
                 keepdims=True
             )
 
+            # Get the signal travel time (the "one way light time")
+            owlt[u_uid][v_uid] = (sep[u_uid][v_uid] / c).squeeze().tolist()
+
             if isinstance(v, Spacecraft):
                 # Create array where True represents a potential connection re separation
-                vis[u_uid][v_uid] = sep[u_uid][v_uid] < u.comms["isl"].dist_max
+                vis[u_uid][v_uid] = sep[u_uid][v_uid] < u.isl_dist
 
             if isinstance(v, GroundNode):
                 # FIXME This is innacurate at high/low latitudes due to the oblateness
@@ -143,12 +151,8 @@ def space_connectivity_matrix(
                 )
                 vis[u_uid][v_uid] = sep[u_uid][v_uid] < max_range
 
-    # Define the data rate and contact capacity at each time step between pairs of
-    # satellites and gateways
-    rate, capacity = get_rate_capacity(satellites, gateways, times, vis, sep)
-
     # Populate the edges list to include the rates and capacities at each time step
-    edges = add_edges(satellites, gateways, targets, rate, capacity, times, vis)
+    edges = add_edges(satellites, gateways, targets, times, vis, owlt)
 
     clear_position_vectors(
         satellites.values(),
@@ -232,7 +236,6 @@ def build_contact_schedule(nodes, edges):
                 v = connection["nodes"][1]
                 if (u, v) not in engaged[es[0]]:
                     continue
-                cap = connection["capacity"]
                 engaged[es[0]].remove((u, v))
 
                 # for each edge downstream of the contact we're looking at
@@ -240,10 +243,6 @@ def build_contact_schedule(nodes, edges):
                     # If the contact is still ongoing, add 1 to the counter and
                     # extract this contact from the schedule for the next iteration
                     if (u, v) in engaged[downstream[0]]:
-                        cap += downstream[1][
-                            [x['nodes'] for x in downstream[1]].index((u, v))
-                        ]['capacity']
-
                         engaged[downstream[0]].remove((u, v))
 
                     # Else if the contact has ended, compile the duration of the contact
@@ -254,12 +253,11 @@ def build_contact_schedule(nodes, edges):
                         # if the "other" node in the contact is a target
                         if isinstance(nodes[v], GroundNode) and nodes[v].is_source:
                             contacts[es[0]].append((
-                                v,
                                 u,
+                                v,
                                 create_edge(
-                                    1,
-                                    es[0],
-                                    t_span,
+                                    int(es[0] + t_span/2),
+                                    0,
                                     0.
                                 )
                             ))
@@ -267,14 +265,15 @@ def build_contact_schedule(nodes, edges):
                         # if both nodes in the contact are either satellites or gateways
                         else:
                             # add an edge to the contact schedule
+                            # FIXME This is currently using the OWLT at the start of
+                            #  the contact, rather than the average
                             contacts[es[0]].append((
                                 u,
                                 v,
                                 create_edge(
-                                    cap,
                                     es[0],
                                     t_span,
-                                    nodes[u].cost['transmit']
+                                    connection["owlt"]
                                 )
                             ))
                         break
@@ -285,73 +284,7 @@ def build_contact_schedule(nodes, edges):
     return cs
 
 
-def get_rate_capacity(satellites, gateways, times, vis, sep):
-    capacity = {}
-    rate = {}
-    for u_uid, u in satellites.items():
-        rate[u_uid] = {}
-        capacity[u_uid] = {}
-        v_others = {
-            x: y for x, y in {
-                **satellites,
-                **gateways
-            }.items() if x is not u_uid
-        }
-        for v_uid, v in v_others.items():
-            if isinstance(v, GroundNode):
-                if not rate.get(v_uid):
-                    rate[v_uid] = {u_uid: []}
-                    capacity[v_uid] = {u_uid: []}
-                else:
-                    rate[v_uid][u_uid] = []
-                    capacity[v_uid][u_uid] = []
-
-            capacity[u_uid][v_uid] = []
-            rate[u_uid][v_uid] = []
-            for x in range(len(times)):
-                if vis[u_uid][v_uid][x] and x != len(times)-1:
-                    # Get the data rate according to the distance separation
-                    r = u.comms[u.comm_pairs[v_uid]].rate_from_dist(
-                        sep[u_uid][v_uid][x, 0]
-                    )
-                    rate[u_uid][v_uid].append(r)
-
-                    if isinstance(v, Spacecraft):
-                        # Add the capacity, which is calculated as HALF the amount that
-                        # could be transferred during the entire contact due to the
-                        # half-duplex property of the ISL
-                        # TODO Is there a better, more parametric way of doing the
-                        #  capacity? Should we actually be starting the contact at the
-                        #  half way point for one of the satellites? How would we even
-                        #  decide that?
-                        capacity[u_uid][v_uid].append(r * (times[x+1] - times[x]) / 2)
-                    else:
-                        # Space to Ground links assumed to be full duplex
-                        capacity[u_uid][v_uid].append(r * (times[x + 1] - times[x]))
-
-                    if isinstance(v, GroundNode):
-                        # Get the rate and capacity from the Gateway to the Satellite
-                        # Get the data rate according to the distance separation
-                        # Using the S/C "g2s" here, since that is what dictates the
-                        # rates that are feasible for the S/C.
-                        r_gs = v.comms[v.comm_pairs[u_uid]].rate_from_dist(
-                            sep[u_uid][v_uid][x, 0]
-                        )
-                        rate[v_uid][u_uid].append(r_gs)
-                        capacity[v_uid][u_uid].append(r_gs * (times[x + 1] - times[x]))
-
-                else:
-                    rate[u_uid][v_uid].append(0)
-                    capacity[u_uid][v_uid].append(0)
-
-                    if isinstance(v, GroundNode):
-                        rate[v_uid][u_uid].append(0)
-                        capacity[v_uid][u_uid].append(0)
-
-    return rate, capacity
-
-
-def add_edges(satellites, gateways, targets, rate, capacity, times, vis):
+def add_edges(satellites, gateways, targets, times, vis, owlt):
     edges = {t: [] for t in times}
     for u in satellites:
         v_sat_gw = {
@@ -361,32 +294,25 @@ def add_edges(satellites, gateways, targets, rate, capacity, times, vis):
             }.items() if x is not u
         }
         for v in v_sat_gw:
-            try:
-                [edges[t].append(
-                    {
-                        'nodes': (u, v),
-                        'rate': rate[u][v][idx],
-                        'capacity': capacity[u][v][idx]
-                    }
-                ) for idx, t in enumerate(times) if vis[u][v][idx]]
-            except:
-                print('')
+            [edges[t].append(
+                {
+                    'nodes': (u, v),
+                    'owlt': owlt[u][v][idx]
+                }
+            ) for idx, t in enumerate(times) if vis[u][v][idx]]
 
             [edges[t].append(
                 {
                     'nodes': (v, u),
-                    'rate': rate[v][u][idx],
-                    'capacity': capacity[v][u][idx]
+                    'owlt': owlt[u][v][idx]
                 }
-            ) for idx, t in enumerate(times) if
-                vis[u][v][idx] and gateways.get(v)]
+            ) for idx, t in enumerate(times) if vis[u][v][idx] and gateways.get(v)]
 
         for v in targets:
             [edges[t].append(
                 {
                     'nodes': (u, v),
-                    'rate': 0,
-                    'capacity': 0
+                    'owlt': 0.
                 }
             ) for idx, t in enumerate(times) if vis[u][v][idx]]
 
@@ -416,7 +342,7 @@ def init_contact_schedule(edges):
     for t, edges in edges.items():
         for e in edges:
             add_edge_to_contact_schedule(
-                cs, t, e[0], e[1], e[2]["capacity"], e[2]["duration"], e[2]["cost"])
+                cs, e[2]["time"], e[0], e[1], e[2]["duration"], e[2]["owlt"])
     return cs
 
 
@@ -429,7 +355,6 @@ def build_contact_plan(cs):
     """
     k = 0
     contacts = []
-
     for t, dg in cs.items():
         for edge in dg:
             contacts.append(
@@ -437,7 +362,8 @@ def build_contact_plan(cs):
                     edge["from"],
                     edge["to"],
                     edge["time"],
-                    edge["time"] + edge["duration"]
+                    edge["time"] + edge["duration"],
+                    owlt=edge["owlt"]
                 )
             )
             k += 1
@@ -445,7 +371,7 @@ def build_contact_plan(cs):
     return contacts
 
 
-def create_edge(capacity, time, duration, cost):
+def create_edge(time, duration, owlt):
     """
     Method to create an edge (contact) that represent contact between two nodes
 
@@ -454,26 +380,22 @@ def create_edge(capacity, time, duration, cost):
     :param duration: Duration of contact
     :param cost: Cost of transferring data over contact
     """
-    d = {
-        'capacity': capacity,  # contact capacity (data vol)
+    return {
         'time': time,  # time of contact
         'duration': duration,  # duration of contact
-        'cost': cost  # cost to send data from v}
+        'owlt': owlt
     }
 
-    return d
 
-
-def add_edge_to_contact_schedule(cs, t, frm, to, capacity, duration, cost):
+def add_edge_to_contact_schedule(cs, t, frm, to, duration, owlt):
     if not cs.get(t):
         cs[t] = [
             {
                 "from": frm,
                 "to": to,
                 "time": t,
-                "capacity": capacity,
                 "duration": duration,
-                "cost": cost,
+                "owlt": owlt
             }
         ]
     else:
@@ -482,8 +404,7 @@ def add_edge_to_contact_schedule(cs, t, frm, to, capacity, duration, cost):
                 "from": frm,
                 "to": to,
                 "time": t,
-                "capacity": capacity,
                 "duration": duration,
-                "cost": cost,
+                "owlt": owlt
             }
         )

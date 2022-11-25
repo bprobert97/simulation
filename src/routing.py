@@ -15,21 +15,22 @@ class Contact:
     rate: int | float = 1
     confidence: float = 1.0
     owlt: float = 0.0
-    # route search working area
-    arrival_time: int | float = sys.maxsize
-    visited: bool = False
-    visited_nodes: List = field(default_factory=lambda: [])
-    predecessor: int = 0
-    # route management working area
-    suppressed: bool = False
-    suppressed_next_hop: List = field(default_factory=lambda: [])
-    # forwarding working area
-    first_byte_tx_time: int | float = None
-    last_byte_tx_time: int | float = None
-    last_byte_arr_time: int | float = None
-    effective_volume_limit: int | float = None
 
     def __post_init__(self):
+        # route search working area
+        self.arrival_time = sys.maxsize
+        self.visited = False
+        self.visited_nodes = field(default_factory=lambda: [])
+        self.predecessor = 0
+        # route management working area
+        self.suppressed = False
+        self.suppressed_next_hop = field(default_factory=lambda: [])
+        # forwarding working area
+        self.first_byte_tx_time = None
+        self.last_byte_tx_time = None
+        self.last_byte_arr_time = None
+        self.effective_volume_limit = None
+
         self.volume = self.rate * (self.end - self.start)
         self.mav = [self.volume, self.volume, self.volume]
 
