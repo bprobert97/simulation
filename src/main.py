@@ -12,6 +12,7 @@ from node import Node
 from routing import Contact, cgr_yens
 from scheduling import Scheduler, Request
 from bundles import Buffer, Bundle
+from analytics import Analytics
 
 
 SCHEDULER_ID = 0
@@ -59,14 +60,9 @@ def bundle_generator(env, sources, destinations):
 		size = random.randint(*BUNDLE_SIZE)
 		deadline = env.now + BUNDLE_TTL
 		print(f"bundle generated on node {source.uid} at time {env.now} for destination {destination.uid}")
-		source.buffer.append(
-			Bundle(
-				source.uid,
-				destination.uid,
-				size=size,
-				deadline=deadline
-			)
-		)
+		b = Bundle(source.uid, destination.uid, size=size, deadline=deadline)
+		source.buffer.append(b)
+		pub.sendMessage("bundle_acquired", b=b)
 
 
 def init_nodes(num_nodes, cp):
@@ -124,6 +120,17 @@ def create_route_tables(nodes, cp):
 			node.route_table[other.uid] = [] if not routes else routes
 
 
+def init_analytics():
+	a = Analytics()
+	pub.subscribe(a.add_task, "task_added")
+	pub.subscribe(a.add_bundle, "bundle_acquired")
+	pub.subscribe(a.deliver_bundle, "bundle_delivered")
+	pub.subscribe(a.forward_bundle, "bundle_forwarded")
+	pub.subscribe(a.drop_bundle, "bundle_dropped")
+
+	return a
+
+
 if __name__ == "__main__":
 	"""
 	Contact Graph Routing implementation
@@ -153,6 +160,7 @@ if __name__ == "__main__":
 		# TODO Need to add in the generators that do the regular bundle assignment and
 		#  route discovery (if applicable)
 
+	analytics = init_analytics()
 	env.run(until=30)
 
 	print('')

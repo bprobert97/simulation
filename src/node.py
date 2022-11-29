@@ -89,6 +89,7 @@ class Node:
             send_time = bundle.size / contact.rate
             if contact.end - env.now >= send_time:
                 bundle.sender = self.uid
+                bundle.update_age(env.now)
                 env.process(
                     self.bundle_send(
                         env,
@@ -153,12 +154,16 @@ class Node:
             print("")
             return
 
+        bundle.hop_count += 1
+
         if bundle.dst == self.uid:
             print(f"bundle delivered to {self.uid} from {bundle.sender} at {env.now}")
+            pub.sendMessage("bundle_delivered")
             self.delivered_bundles.append(bundle)
             return
 
         print(f"bundle received on {self.uid} from {bundle.sender} at {env.now}")
+        pub.sendMessage("bundle_forwarded")
         self.buffer.append(bundle)
 
     def bundle_assignment_controller(self, env):
@@ -240,6 +245,7 @@ class Node:
 
             if not assigned:
                 self.drop_list.append(b)
+                pub.sendMessage("bundle_dropped")
 
     def _merge_task_tables(self, tt):
         """

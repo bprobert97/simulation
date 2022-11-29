@@ -59,9 +59,18 @@ class Bundle:
 	fragment: bool = True
 	sender: int = 0
 	created_at: int = 0
+	hop_count: int = 0
+	_age: int = 0
 
 	def __post_init__(self):
 		self.evc = max(self.size * 1.03, 100)
+
+	@property
+	def age(self):
+		return self._age
+
+	def update_age(self, t_now):
+		self._age = t_now - self.created_at
 
 	def __repr__(self):
 		return "Bundle: Destination %d | Deadline %d" % (

@@ -4,6 +4,8 @@ import sys
 from dataclasses import dataclass, field
 from typing import List
 
+from pubsub import pub
+
 from routing import Route, Contact, dijkstra_cgr
 
 
@@ -126,8 +128,7 @@ class Scheduler:
         if acq_path and del_path:
             for hop in del_path.hops:
                 hop.volume -= request.data_volume
-
-            return Task(
+            task = Task(
                 request.uid,
                 request.time_acq,
                 request.time_del,
@@ -142,6 +143,8 @@ class Scheduler:
                 [x.uid for x in acq_path.hops],
                 [x.uid for x in del_path.hops]
             )
+            pub.sendMessage("task_added", t=task)
+            return task
 
         else:
             # If no assignee has been identified, then it means there's no feasible way the
