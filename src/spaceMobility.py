@@ -251,6 +251,10 @@ def build_contact_schedule(nodes, edges):
                         t_span = downstream[0] - es[0]
 
                         # if the "other" node in the contact is a target
+                        # TODO This provides a single target contact "moment in time",
+                        #  but would not be applicable to viewing a region for multiple
+                        #  time periods, or if wanting to know the total time a target
+                        #  is within the field of regard for a satellite.
                         if isinstance(nodes[v], GroundNode) and nodes[v].is_source:
                             contacts[es[0]].append((
                                 u,

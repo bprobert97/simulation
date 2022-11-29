@@ -20,27 +20,33 @@ class Request:
     data_volume: int = 5
     time_created: int = None
 
+    def __post_init__(self):
+        # Define a unique ID based on the time of request arrival and ID of the target
+        self.__uid = f"{self.time_created}_{self.target_id}"
+
+    @property
+    def uid(self):
+        return self.__uid
+
 
 @dataclass
 class Task:
-    request: Request
-    scheduled_at: int = 0
-    acq_path: Route = None
-    del_path: Route = None
+    request_id: str
+    deadline_acquire: int
+    deadline_delivery: int
+    target: int
+    priority: int
+    destination: int
+    size: int
+    assignee: int
+    scheduled_at: int | float
+    time_acquire: int | float = None  # Intended pick-up time
+    time_deliver: int | float = None  # Intended delivery time
+    acq_path: List = field(default_factory=lambda: [])
+    del_path: List = field(default_factory=lambda: [])
+    _acquired_at: int | float = None
+    _delivered_at: int | float = None
     _status: str = "pending"
-
-    def __post_init__(self):
-        self.request_time = self.request.time_created
-        self.deadline_acquire = self.request.time_acq
-        self.deadline_delivery = self.request.time_del
-        self.target = self.request.target_id
-        self.priority = self.request.priority
-        self.destination = self.request.destination
-        self.size = self.request.data_volume
-        self.assignee = self.del_path.hops[0].frm
-        self.time_acquire = self.acq_path.bdt
-        self.time_deliver = self.del_path.bdt
-        # self.delivery_route = [int(x.uid) for x in self.del_path.hops]
 
     @property
     def status(self):
@@ -49,6 +55,14 @@ class Task:
     @status.setter
     def status(self, value):
         self._status = value
+
+    @property
+    def acquired_at(self):
+        return self._acquired_at
+
+    @acquired_at.setter
+    def acquired_at(self, v):
+        self._acquired_at = v
 
 
 @dataclass
@@ -109,16 +123,25 @@ class Scheduler:
         """
         # TODO setting the UID of the Scheduler to = 1
         acq_path, del_path = self._cgs_routing(self.uid, request, curr_time)
-        if acq_path:
+        if acq_path and del_path:
             for hop in del_path.hops:
                 hop.volume -= request.data_volume
 
-            # Create a "task" object, which outlines who will acquire the data, from where,
-            # and when. Also includes any deadlines for data acquisition and delivery (if
-            # applicable) and the priority of the data being acquired. The "planned"
-            # delivery route is also included, but that may not be the actual route
-            # taken by the data
-            return Task(request, curr_time, acq_path, del_path)
+            return Task(
+                request.uid,
+                request.time_acq,
+                request.time_del,
+                request.target_id,
+                request.priority,
+                request.destination,
+                request.data_volume,
+                del_path.hops[0].frm,
+                curr_time,
+                acq_path.bdt,
+                del_path.bdt,
+                [x.uid for x in acq_path.hops],
+                [x.uid for x in del_path.hops]
+            )
 
         else:
             # If no assignee has been identified, then it means there's no feasible way the

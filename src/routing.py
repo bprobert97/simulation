@@ -20,19 +20,29 @@ class Contact:
         # route search working area
         self.arrival_time = sys.maxsize
         self.visited = False
-        self.visited_nodes = field(default_factory=lambda: [])
+        self.visited_nodes = []
         self.predecessor = 0
         # route management working area
         self.suppressed = False
-        self.suppressed_next_hop = field(default_factory=lambda: [])
+        self.suppressed_next_hop = []
         # forwarding working area
         self.first_byte_tx_time = None
         self.last_byte_tx_time = None
         self.last_byte_arr_time = None
         self.effective_volume_limit = None
 
+        # TODO is this really necessary? We're using it so that Tasks know the contacts
+        #  used in the acquisition and delivery paths, rather than storing pointers to
+        #  actual contacts. This is because a Task is really just an item in a table
+        #  that gets passed around, so it doesn't really make sense to point to a Contact
+        self.__uid = f"{self.frm}_{self.to}_{self.start}"
+
         self.volume = self.rate * (self.end - self.start)
         self.mav = [self.volume, self.volume, self.volume]
+
+    @property
+    def uid(self):
+        return self.__uid
 
     def clear_dijkstra_area(self):
         self.arrival_time = sys.maxsize
