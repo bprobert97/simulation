@@ -77,7 +77,7 @@ class SpaceNetworkTest(unittest.TestCase):
 		g_north.eci_coords(jd0, int(s1.orbit.period), 1)
 
 		id_counter += 1
-		t_south = GroundNode(id_counter, -90., 0., 0., 0., True)
+		t_south = GroundNode(id_counter, -90., 0., 0., 0., is_source=True)
 		t_south.eci_coords(jd0, int(s1.orbit.period), 1)
 
 		times = [x for x in range(int(s1.orbit.period))]

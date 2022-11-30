@@ -2,7 +2,7 @@ from math import radians, pi, sin, cos, sqrt
 
 import numpy as np
 from scipy.integrate import odeint
-from .misc import gast, topo_to_eci, mee_to_cart, mee_to_coe, coe_to_mee
+from src.misc import gast, topo_to_eci, mee_to_cart, mee_to_coe, coe_to_mee
 
 
 class GroundNode:
@@ -61,17 +61,6 @@ class GroundNode:
             )
         else:
             self._alt = value
-
-    @property
-    def name(self):
-        return self._name
-
-    @name.setter
-    def name(self, n):
-        if isinstance(n, str):
-            self._name = n
-        else:
-            raise TypeError
 
     @property
     def min_el(self):
@@ -262,15 +251,15 @@ class Orbit:
         return dr, dt, dn
 
 
-def setup_ground_nodes(jd_start, duration, t_step, nodes, id_counter, is_source=False):
+def setup_ground_nodes(jd_start, duration, t_step, nodes, is_source=False, id_counter=0):
     nodes_dict = {}
-    for node in nodes:
+    for node in nodes["locations"]:
         n = GroundNode(
             id_counter,
             node["lat"],
             node["lon"],
             node["alt"],
-            min_el=node["min_el"],
+            min_el=nodes["min_el"],
             is_source=is_source
         )
         n.eci_coords(jd_start, duration, t_step)
@@ -279,9 +268,9 @@ def setup_ground_nodes(jd_start, duration, t_step, nodes, id_counter, is_source=
     return nodes_dict
 
 
-def setup_satellites(jd_start, duration, t_step, satellites, counter):
+def setup_satellites(jd_start, duration, t_step, satellites, counter=0):
     satellites_dict = {}
-    for sat in satellites:
+    for sat in satellites["orbits"]:
         s = Spacecraft(counter)
         ic = [
             sat["sma"]*1000,
@@ -294,4 +283,4 @@ def setup_satellites(jd_start, duration, t_step, satellites, counter):
         s.get_orbit(ic, 'coe', jd_start, duration, t_step)
         satellites_dict[counter] = s
         counter += 1
-    return {satellites_dict}
+    return satellites_dict

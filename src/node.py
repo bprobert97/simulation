@@ -98,10 +98,8 @@ class Node:
                         contact.owlt+send_time
                     )
                 )
-                print(f"bundle sent from {self.uid} to {contact.to} at time {env.now}, "
-                      f"size {bundle.size}, total delay {contact.owlt + send_time}")
-
-                # Wait until the bundle has been sent
+                # Wait until the bundle has been sent (note it may not have been fully
+                # received at this time, due to the OWLT)
                 yield env.timeout(send_time)
             else:
                 failed_bundles.append(bundle)
@@ -119,8 +117,7 @@ class Node:
         """
         env.process(self.bundle_send(env, deepcopy(self.task_table), to, delay, True))
 
-    @staticmethod
-    def bundle_send(env, b, n, delay, is_task_table=False):
+    def bundle_send(self, env, b, n, delay, is_task_table=False):
         """
         Send bundle b to node n
 
@@ -136,6 +133,9 @@ class Node:
                 str(n) + "bundle",
                 env=env, bundle=b, is_task_table=is_task_table
             )
+            if isinstance(b, Bundle):
+                print(f"bundle sent from {self.uid} to {n} at time {env.now}, "
+                      f"size {b.size}, total delay {delay}")
             break
 
     def bundle_receive(self, env, bundle, is_task_table=False):

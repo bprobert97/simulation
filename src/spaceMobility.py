@@ -10,9 +10,9 @@ import sys
 from math import acos, radians
 import numpy as np
 
-from .misc import slant_range
-from .spaceNetwork import Spacecraft, GroundNode
-from .routing import Contact
+from misc import slant_range
+from spaceNetwork import Spacecraft, GroundNode
+from routing import Contact
 
 
 def review_contacts(all_times, all_nodes, satellites, gateways, targets):

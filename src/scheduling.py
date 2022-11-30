@@ -102,6 +102,8 @@ class Scheduler:
             # If a task has been created (i.e. there is a feasible acquisition and
             # delivery opportunity), add the task to the table. Else, that request
             # cannot be fulfilled so log something to that effect
+            # TODO If the task table has been updated, it should be shared with anyone
+            #  with whom we are currently in a contact, since it may be of value to them
             if task:
                 self.task_table.append(task)
             else:
