@@ -128,7 +128,8 @@ class Scheduler:
                   f"or delivery wasn't feasible")
             return
 
-    def _cgs_routing(self, root: int, request: Request, curr_time: int, contact_plan) -> tuple:
+    def _cgs_routing(self, root: int, request: Request, curr_time: int, contact_plan
+                     ) -> tuple:
         """
         Find the acquisition and delivery paths such that the data is delivered at the
         earliest opportunity.

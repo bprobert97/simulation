@@ -11,6 +11,9 @@ from scheduling import Scheduler, Request
 from bundles import Buffer, Bundle
 
 
+OUTBOUND_QUEUE_CHECK_INTERVAL = 1
+
+
 @dataclass
 class Node:
     """
@@ -20,20 +23,22 @@ class Node:
     uid: int
     scheduler: Scheduler = None
     buffer: Buffer = Buffer()
-    outbound_queues: Dict = field(default_factory=lambda: {})
-    contact_plan: List = field(default_factory=lambda: [])
-    route_table: Dict = field(default_factory=lambda: {})
-    request_queue: List = field(default_factory=lambda: [])
-    task_table: List = field(default_factory=lambda: [])
-    drop_list: List = field(default_factory=lambda: [])
-    delivered_bundles: List = field(default_factory=lambda: [])
-    bundle_assignment_repeat_time: int = 1
-    task_table_updated: bool = False
-    targets: List = field(default_factory=lambda: [])
+    outbound_queues: Dict = field(default_factory=dict)
+    contact_plan: List = field(default_factory=list)
+    bundle_assignment_repeat_time: int = field(default=1)
 
-    def __post_init__(self):
+    route_table: Dict = field(init=False, default_factory=dict)
+    request_queue: List = field(init=False, default_factory=list)
+    task_table: List = field(init=False, default_factory=list)
+    drop_list: List = field(init=False, default_factory=list)
+    delivered_bundles: List = field(init=False, default_factory=list)
+    _task_table_updated: bool = field(init=False, default=False)
+    _targets: List = field(init=False, default_factory=list)
+    _contact_plan_self: List = field(init=False, default_factory=list)
+
+    def __post_init__(self) -> None:
         # TODO will need to update this IF we update the contact plan
-        self.contact_plan_self = [c for c in self.contact_plan if c.frm == self.uid]
+        self._contact_plan_self = [c for c in self.contact_plan if c.frm == self.uid]
 
     # *** REQUEST HANDLING (I.E. SCHEDULING) ***
     def request_received(self, request, t_now):
@@ -67,7 +72,7 @@ class Node:
             #  with whom we are currently in a contact, since it may be of value to them
             if task:
                 self.task_table.append(task)
-                self.task_table_updated = True
+                self._task_table_updated = True
             else:
                 print(f"Request for {request.target_id}, submitted at "
                       f"{request.time_created} cannot be processed")
@@ -97,20 +102,21 @@ class Node:
 
     # *** CONTACT HANDLING ***
     def contact_controller(self, env):
-        """
-        Generator that triggers the start and end of contacts according to the contact
-        plan.
+        """Generator that iterates over every contact in which this node is the sender.
 
         Iterates over the contacts in which self is the sending node and invokes the
         contact procedure so that, if appropriate, bundles are forwarded to the current
-        neighbour. Once the contact has concluded, we exit from this contact
+        neighbour. Once the contact has concluded, we exit from this contact, but until
+        that point the contact procedure remains live so that any bundles/Task Table
+        updates that arrive during the contact can be shared (if applicable)
         """
-        while self.contact_plan_self:
-            next_contact = self.contact_plan_self.pop(0)
+        while self._contact_plan_self:
+            next_contact = self._contact_plan_self.pop(0)
             time_to_contact_start = next_contact.start - env.now
+
             # Delay until the contact starts and then resume
             yield env.timeout(time_to_contact_start)
-            if next_contact.to in self.targets:
+            if next_contact.to in self._targets:
                 self._target_contact_procedure(env.now, next_contact.to)
             else:
                 env.process(self._node_contact_procedure(env, next_contact))
@@ -123,11 +129,13 @@ class Node:
             if task.time_acquire == t_now and task.target == target:
                 self.buffer.append(
                     Bundle(
-                        target,
-                        task.destination,
+                        src=self.uid,
+                        dst=task.destination,
+                        target_id=target,
                         size=task.size,
-                        deadline=task.deadline_delivery,
-                        created_at=t_now
+                        lifetime=task.deadline_delivery,
+                        created_at=t_now,
+                        priority=task.priority
                     )
                 )
                 print(f"Bundle acquired on node {self.uid} at time {t_now} from target "
@@ -146,7 +154,7 @@ class Node:
             # If the task table has been updated while we've been in this contact,
             # send that before sharing any more bundles as it may be of value to the
             # neighbour
-            if self.task_table_updated:
+            if self._task_table_updated:
                 env.process(
                     self._bundle_send(
                         env,
@@ -156,21 +164,21 @@ class Node:
                         True
                     )
                 )
-                self.task_table_updated = False
+                self._task_table_updated = False
                 yield env.timeout(0)
                 continue
 
             # If we don't have any bundles waiting in the current neighbour's outbound
             # queue, we can just wait a bit and try again later
             if not self.outbound_queues[contact.to]:
-                yield env.timeout(1)
+                yield env.timeout(OUTBOUND_QUEUE_CHECK_INTERVAL)
                 continue
 
             # Extract a bundle from the outbound queue and send it over the contact
             bundle = self.outbound_queues[contact.to].pop(0)
             send_time = bundle.size / contact.rate
             if contact.end - env.now >= send_time:
-                bundle.sender = self.uid
+                bundle.previous_node = self.uid
                 bundle.update_age(env.now)
                 env.process(
                     self._bundle_send(
@@ -248,12 +256,12 @@ class Node:
         bundle.hop_count += 1
 
         if bundle.dst == self.uid:
-            print(f"bundle delivered to {self.uid} from {bundle.sender} at {env.now:.1f}")
+            print(f"bundle delivered to {self.uid} from {bundle.previous_node} at {env.now:.1f}")
             pub.sendMessage("bundle_delivered")
             self.delivered_bundles.append(bundle)
             return
 
-        print(f"bundle received on {self.uid} from {bundle.sender} at {env.now:.1f}")
+        print(f"bundle received on {self.uid} from {bundle.previous_node} at {env.now:.1f}")
         pub.sendMessage("bundle_forwarded")
         self.buffer.append(bundle)
 
@@ -304,7 +312,7 @@ class Node:
                 # if the route is not of higher value than the current best
                 # route, break from for loop as none of the others will be better
                 # TODO change this if converting to generic value rather than arrival time
-                if route.bdt > b.deadline:
+                if route.bdt > b.lifetime:
                     continue
 
                 # Check each of the hops and make sure the bundle can actually traverse

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -46,23 +46,39 @@ class Buffer:
 
 @dataclass
 class Bundle:
-	"""
-	Bundle class, following the format as specified in the Bundle Protocol
+	"""Bundle class, following the format as specified in the Bundle Protocol
+
+	Args:
+		src: ID of the node on which the bundle was generated initially
+		dst: Endpoint ID to which the bundle must be delivered (the "destination")
+		target_id: If applicable, ID of the target to which the bundle relates
+		created_at: Time at which the bundle was created
+		size: Nominal size of the bundle payload data
+		lifetime: Absolute time after which the bundle has zero value
+		priority: Level of priority, higher value = higher priority. 0 = "Bulk",
+			1 = normal, 2 = expedited
+		critical: If True, the bundle is of "critical" type
+		fragment: If True, the bundle must not be fragmented
+		previous_node: ID of the last node to forward (transmit) the bundle
+		hop_count: Number of contacts over which the bundle has been forwarded
+		_age: Age of the bundle immediately prior to the most recent forwarding event
+		_is_fragment: If True, indicates that the bundle is a fragment of its original
 	"""
 	src: int
 	dst: int
-	size: int = 1
-	deadline: int = 1000
-	priority: int = 0
-	critical: bool = False
-	custody: bool = False
-	fragment: bool = True
-	sender: int = 0
+	target_id: int = None
 	created_at: int = 0
-	hop_count: int = 0
-	_age: int = 0
+	size: int = 1
+	lifetime: int = 1000
+	priority: int = 0  #
+	critical: bool = False
+	fragment: bool = True
+	previous_node: int = field(init=False, default=None)
+	hop_count: int = field(init=False, default=0)
+	_age: int = field(init=False, default=0)
+	_is_fragment: bool = field(init=False, default=False)
 
-	def __post_init__(self):
+	def __post_init__(self) -> None:
 		self.evc = max(self.size * 1.03, 100)
 
 	@property
@@ -73,7 +89,9 @@ class Bundle:
 		self._age = t_now - self.created_at
 
 	def __repr__(self):
-		return "Bundle: Destination %d | Deadline %d" % (
-			self.dst,
-			self.deadline
+		return "Bundle: Created at %d | By %d | From %d | Going to %d" % (
+			self.created_at,
+			self.src,
+			self.target_id,
+			self.dst
 		)

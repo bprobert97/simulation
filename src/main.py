@@ -24,7 +24,7 @@ SCHEDULER_BUFFER_CAPACITY = 1000
 NUM_NODES = 4
 NODE_BUFFER_CAPACITY = 100
 NUM_BUNDLES = [5, 10]
-REQUEST_ARRIVAL_WAIT = 240  # average waiting time between requests (s)
+REQUEST_ARRIVAL_WAIT = 500  # average waiting time between requests (s)
 BUNDLE_SIZE = [1, 3]
 BUNDLE_ARRIVAL_RATE = 0.2  # Mean number of bundles to be generated per unit time
 BUNDLE_TTL = 25  # Time to live for a
@@ -60,8 +60,12 @@ def bundle_generator(env, sources, destinations):
 		destination = random.choice(dests)
 		size = random.randint(*BUNDLE_SIZE)
 		deadline = env.now + BUNDLE_TTL
-		print(f"bundle generated on node {source.uid} at time {env.now} for destination {destination.uid}")
-		b = Bundle(source.uid, destination.uid, size=size, deadline=deadline)
+		print(
+			f"bundle generated on node {source.uid} at time {env.now} for destination"
+			f" {destination.uid}")
+		b = Bundle(
+			src=source.uid, dst=destination.uid, target_id=source.uid, size=size,
+			lifetime=deadline, created_at=env.now)
 		source.buffer.append(b)
 		pub.sendMessage("bundle_acquired", b=b)
 
@@ -76,7 +80,7 @@ def init_space_nodes(nodes, targets, cp):
 				outbound_queues={x: [] for x in node_ids},
 				contact_plan=deepcopy(cp)
 		)
-		n.targets = targets
+		n._targets = targets
 		pub.subscribe(n._bundle_receive, str(n_uid) + "bundle")
 		node_list.append(n)
 	return node_list
@@ -203,14 +207,14 @@ if __name__ == "__main__":
 		gateways,
 		targets
 	)
+
+	# Add a permanent contact between the MOC and the Gateways so that they can always
+	# be up-to-date in terms of the Task Table
 	for g in gateways:
 		cp.insert(
 			0,
 			Contact(SCHEDULER_ID, g, 0, inputs["simulation"]["duration"], sys.maxsize)
 		)
-	num_nodes = len({**satellites, **gateways, **targets})
-	env = simpy.Environment()
-	# cp = init_contact_plan()
 
 	# Instantiate the Mission Operations Center, i.e. the Node at which requests arrive
 	moc = Node(
@@ -222,10 +226,10 @@ if __name__ == "__main__":
 	)
 	moc.scheduler.parent = moc
 
-	# nodes = init_nodes(NUM_NODES, cp)
 	nodes = init_space_nodes({**satellites,  **gateways}, [x for x in targets], cp)
 	create_route_tables(nodes, cp)
-	# env.process(bundle_generator(env, nodes, nodes))
+
+	env = simpy.Environment()
 	env.process(requests_generator(
 		env,
 		[x for x in targets],
