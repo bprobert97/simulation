@@ -183,12 +183,12 @@ def init_space_network(inputs_):
 
 if __name__ == "__main__":
 	"""
-	Contact Graph Routing implementation
+	Contact Graph Scheduling implementation
 	
-	Requests are submitted to one or more Scheduler nodes, which process into Tasks 
+	Requests are submitted to a central Scheduler node, which process requests into Tasks 
 	that are distributed through a delay-tolerant network so that nodes can execute 
-	tasks according to their assignation (i.e. bundle acquisition). Acquired bundles 
-	are routed through the network via either CGR or MSR, as specified.
+	pick-ups according to their assignation (i.e. bundle acquisition). Acquired bundles 
+	are routed through the network using either CGR or MSR, as specified.
 	"""
 	random.seed(0)
 
@@ -197,7 +197,9 @@ if __name__ == "__main__":
 	filename = "input_files//sim0.json"
 	with open(filename, "r") as read_content:
 		inputs = json.load(read_content)
-	times = [x for x in range(0, inputs["simulation"]["duration"], inputs["simulation"]["step_size"])]
+	times = [x for x in range(
+		0, inputs["simulation"]["duration"], inputs["simulation"]["step_size"]
+	)]
 	targets, satellites, gateways = init_space_network(inputs)
 
 	cp = review_contacts(
@@ -217,6 +219,7 @@ if __name__ == "__main__":
 		)
 
 	# Instantiate the Mission Operations Center, i.e. the Node at which requests arrive
+	# and then set up each of the remote nodes (including both satellites and gateways).
 	moc = Node(
 		SCHEDULER_ID,
 		buffer=Buffer(SCHEDULER_BUFFER_CAPACITY),
@@ -225,22 +228,26 @@ if __name__ == "__main__":
 		outbound_queues={x: [] for x in {**satellites,  **gateways}}
 	)
 	moc.scheduler.parent = moc
-
 	nodes = init_space_nodes({**satellites,  **gateways}, [x for x in targets], cp)
 	create_route_tables(nodes, cp)
 
+	# Initiate the simpy environment, which keeps track of the event queue and triggers
+	# the next discrete event to take place
 	env = simpy.Environment()
-	env.process(requests_generator(
-		env,
-		[x for x in targets],
-		[x for x in gateways],
-		moc
-	))
+	env.process(requests_generator(env, [x for x in targets], [x for x in gateways], moc))
+
+	# Set up the Simpy Processes on each of the Nodes. These are effectively the
+	# generators that iterate continuously throughout the simulation, allowing us to
+	# jump ahead to whatever the next event is, be that bundle assignment, handling a
+	# contact or discovering more routes downstream
 	for node in [moc] + nodes:
 		env.process(node.bundle_assignment_controller(env))
 		env.process(node.contact_controller(env))  # Generator that initiates contacts
-		# TODO Need to add in the generators that do the regular bundle assignment and
-		#  route discovery (if applicable)
+		# TODO Need to add in the generator that does regular route discovery. This
+		#  will effectively be something that runs every so often and makes sure we
+		#  have a sufficient number of routes in our route tables with enough capacity.
+		#  We could actually have something that watches our Route Tables and triggers
+		#  the Route Discovery whenever we drop below a certain number of good options
 
 	analytics = init_analytics()
 	env.run(until=inputs["simulation"]["duration"])
