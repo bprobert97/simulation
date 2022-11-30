@@ -77,7 +77,7 @@ def init_space_nodes(nodes, targets, cp):
 				contact_plan=deepcopy(cp)
 		)
 		n.targets = targets
-		pub.subscribe(n.bundle_receive, str(n_uid) + "bundle")
+		pub.subscribe(n._bundle_receive, str(n_uid) + "bundle")
 		node_list.append(n)
 	return node_list
 
@@ -96,7 +96,7 @@ def init_nodes(num_nodes, cp):
 		# this node. This will execute the bundle_receive() method on board the
 		# receiving node at the time when the FULL bundle has been received, including
 		# any delay incurred through travel (OWLT)
-		pub.subscribe(n.bundle_receive, str(n_uid) + "bundle")
+		pub.subscribe(n._bundle_receive, str(n_uid) + "bundle")
 
 		node_list.append(n)
 
@@ -217,9 +217,11 @@ if __name__ == "__main__":
 		SCHEDULER_ID,
 		buffer=Buffer(SCHEDULER_BUFFER_CAPACITY),
 		contact_plan=cp,
-		scheduler=Scheduler(SCHEDULER_ID),
+		scheduler=Scheduler(),
 		outbound_queues={x: [] for x in {**satellites,  **gateways}}
 	)
+	moc.scheduler.parent = moc
+
 	# nodes = init_nodes(NUM_NODES, cp)
 	nodes = init_space_nodes({**satellites,  **gateways}, [x for x in targets], cp)
 	create_route_tables(nodes, cp)

@@ -24,7 +24,7 @@ class Request:
 
     def __post_init__(self):
         # Define a unique ID based on the time of request arrival and ID of the target
-        self.__uid = f"{self.time_created:.3f}_{self.target_id}"
+        self.__uid = f"{self.time_created:.1f}_{self.target_id}"
 
     @property
     def uid(self):
@@ -70,12 +70,14 @@ class Task:
 @dataclass
 class Scheduler:
     """The Scheduler is an object that enables a node to carry out Contact Graph
-    Scheduling operations. I.e. it can receive requests and process them to create
-    tasks, which are added to a task table"""
-    uid: int
+    Scheduling operations. I.e. it can schedule tasks in response to requests, based on
+    a certain Contact Plan"""
+    parent = None
 
-    def schedule_task(self, request, curr_time, contact_plan):
+    def schedule_task(self, request: Request, curr_time: int, contact_plan: list
+                      ) -> Task | None:
         """
+
         Identify the contact, between a satellite & target, in which the request should
         be fulfilled and return a task that includes the necessary info. The process to do
         this is effectively two-executions of Dijkstra's algorithm, whereby routes to
@@ -85,10 +87,18 @@ class Scheduler:
         As requests are handled, the main contact schedule is updated to account for
         the resources used, such that future requests are scheduled based on the
         network state having already processed previous requests.
-        :param request:
-        :return:
+
+        Args:
+            request: Request object that is being processed into a Task
+            curr_time: Current time
+            contact_plan: List of Contact objects on which the scheduling will occur
+
+        Returns:
+            task: a Task object (if possible), else None
+
         """
-        acq_path, del_path = self._cgs_routing(self.uid, request, curr_time, contact_plan)
+        acq_path, del_path = self._cgs_routing(self.parent.uid, request, curr_time,
+                                               contact_plan)
         if acq_path and del_path:
             for hop in del_path.hops:
                 hop.volume -= request.data_volume

@@ -44,9 +44,9 @@ class Node:
 
         # TODO this will trigger the request processing immediately having received a
         #  request, however we may want to set this process to be periodic
-        self.process_requests(t_now)
+        self._process_requests(t_now)
 
-    def process_requests(self, curr_time):
+    def _process_requests(self, curr_time):
         """
         Process each request in the queue, by identifying the assignee-target contact
         that will collect the payload, creating a Task for this and adding it to the table
@@ -55,7 +55,7 @@ class Node:
         while self.request_queue:
             request = self.request_queue.pop(0)
             # Check to see if any existing tasks exist that could service this request.
-            if self.is_request_serviced(request):
+            if self._is_request_serviced(request):
                 continue
 
             task = self.scheduler.schedule_task(request, curr_time, self.contact_plan)
@@ -73,7 +73,7 @@ class Node:
                       f"{request.time_created} cannot be processed")
             # self._remove_contact_from_cp(request.target_id)
 
-    def is_request_serviced(self, request: Request) -> bool:
+    def _is_request_serviced(self, request: Request) -> bool:
         """Returns True if the request is already handled by an existing Task.
 
         Check to see if any of the existing tasks would satisfy the request. I.e. the
@@ -111,11 +111,11 @@ class Node:
             # Delay until the contact starts and then resume
             yield env.timeout(time_to_contact_start)
             if next_contact.to in self.targets:
-                self.target_procedure(env.now, next_contact.to)
+                self._target_contact_procedure(env.now, next_contact.to)
             else:
-                env.process(self.contact_procedure(env, next_contact))
+                env.process(self._node_contact_procedure(env, next_contact))
 
-    def target_procedure(self, t_now, target):
+    def _target_contact_procedure(self, t_now, target):
         """
         Procedure to follow if we're in contact w/ a Target node
         """
@@ -134,21 +134,21 @@ class Node:
                       f"{target}")
                 return
 
-    def contact_procedure(self, env, contact):
+    def _node_contact_procedure(self, env, contact):
         """
         Carry out the contact with a neighbouring node. This involves a handshake (if
         applicable/possible), sending of data and closing down contact
         """
         failed_bundles = []
         print(f"contact started on {self.uid} with {contact.to} at {env.now}")
-        self.handshake(env, contact.to, contact.owlt)
+        self._handshake(env, contact.to, contact.owlt)
         while env.now < contact.end:
             # If the task table has been updated while we've been in this contact,
             # send that before sharing any more bundles as it may be of value to the
             # neighbour
             if self.task_table_updated:
                 env.process(
-                    self.bundle_send(
+                    self._bundle_send(
                         env,
                         deepcopy(self.task_table),
                         contact.to,
@@ -173,7 +173,7 @@ class Node:
                 bundle.sender = self.uid
                 bundle.update_age(env.now)
                 env.process(
-                    self.bundle_send(
+                    self._bundle_send(
                         env,
                         bundle,
                         contact.to,
@@ -202,13 +202,13 @@ class Node:
         for b in failed_bundles + self.outbound_queues[contact.to]:
             self.buffer.append(b)
 
-    def handshake(self, env, to, delay):
+    def _handshake(self, env, to, delay):
         """
         Carry out the handshake at the beginning of the contact,
         """
-        env.process(self.bundle_send(env, deepcopy(self.task_table), to, delay, True))
+        env.process(self._bundle_send(env, deepcopy(self.task_table), to, delay, True))
 
-    def bundle_send(self, env, b, n, delay, is_task_table=False):
+    def _bundle_send(self, env, b, n, delay, is_task_table=False):
         """
         Send bundle b to node n
 
@@ -217,6 +217,9 @@ class Node:
         send process is added to the event queue
         """
         while True:
+            if isinstance(b, Bundle):
+                print(f"bundle sent from {self.uid} to {n} at time {env.now}, "
+                      f"size {b.size}, total delay {delay:.1f}")
             # Wait until the whole message has arrived and then invoke the "receive"
             # method on the receiving node
             yield env.timeout(delay)
@@ -224,12 +227,9 @@ class Node:
                 str(n) + "bundle",
                 env=env, bundle=b, is_task_table=is_task_table
             )
-            if isinstance(b, Bundle):
-                print(f"bundle sent from {self.uid} to {n} at time {env.now}, "
-                      f"size {b.size}, total delay {delay}")
             break
 
-    def bundle_receive(self, env, bundle, is_task_table=False):
+    def _bundle_receive(self, env, bundle, is_task_table=False):
         """
         Receive bundle from neighbouring node. This also includes the receiving of Task
         Tables, as indicated by the flag in the args.
@@ -248,22 +248,22 @@ class Node:
         bundle.hop_count += 1
 
         if bundle.dst == self.uid:
-            print(f"bundle delivered to {self.uid} from {bundle.sender} at {env.now}")
+            print(f"bundle delivered to {self.uid} from {bundle.sender} at {env.now:.1f}")
             pub.sendMessage("bundle_delivered")
             self.delivered_bundles.append(bundle)
             return
 
-        print(f"bundle received on {self.uid} from {bundle.sender} at {env.now}")
+        print(f"bundle received on {self.uid} from {bundle.sender} at {env.now:.1f}")
         pub.sendMessage("bundle_forwarded")
         self.buffer.append(bundle)
 
     # *** BUNDLE & TASK TABLE HANDLING ***
     def bundle_assignment_controller(self, env):
         while True:
-            self.bundle_assignment(env)
+            self._bundle_assignment(env)
             yield env.timeout(self.bundle_assignment_repeat_time)
 
-    def bundle_assignment(self, env):
+    def _bundle_assignment(self, env):
         """
         For each bundle in the virtual buffer, identify the route over which it should
         be sent and reduce the resources along each Contact in that route accordingly.
