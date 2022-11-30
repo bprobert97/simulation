@@ -7,7 +7,7 @@ from copy import deepcopy
 
 from pubsub import pub
 
-from scheduling import Scheduler
+from scheduling import Scheduler, Request
 from bundles import Buffer, Bundle
 
 
@@ -23,16 +23,17 @@ class Node:
     outbound_queues: Dict = field(default_factory=lambda: {})
     contact_plan: List = field(default_factory=lambda: [])
     route_table: Dict = field(default_factory=lambda: {})
+    request_queue: List = field(default_factory=lambda: [])
     task_table: List = field(default_factory=lambda: [])
     drop_list: List = field(default_factory=lambda: [])
     delivered_bundles: List = field(default_factory=lambda: [])
     bundle_assignment_repeat_time: int = 1
+    task_table_updated: bool = False
+    targets: List = field(default_factory=lambda: [])
 
     def __post_init__(self):
         # TODO will need to update this IF we update the contact plan
         self.contact_plan_self = [c for c in self.contact_plan if c.frm == self.uid]
-        self.request_queue = []
-        self.task_table = []
 
     # *** REQUEST HANDLING (I.E. SCHEDULING) ***
     def request_received(self, request, t_now):
@@ -53,8 +54,10 @@ class Node:
         """
         while self.request_queue:
             request = self.request_queue.pop(0)
-            # Adjust the contact plan to include contacts with the target node
-            # self._add_target_contacts(request)
+            # Check to see if any existing tasks exist that could service this request.
+            if self.is_request_serviced(request):
+                continue
+
             task = self.scheduler.schedule_task(request, curr_time, self.contact_plan)
 
             # If a task has been created (i.e. there is a feasible acquisition and
@@ -64,10 +67,33 @@ class Node:
             #  with whom we are currently in a contact, since it may be of value to them
             if task:
                 self.task_table.append(task)
+                self.task_table_updated = True
             else:
                 print(f"Request for {request.target_id}, submitted at "
                       f"{request.time_created} cannot be processed")
             # self._remove_contact_from_cp(request.target_id)
+
+    def is_request_serviced(self, request: Request) -> bool:
+        """Returns True if the request is already handled by an existing Task.
+
+        Check to see if any of the existing tasks would satisfy the request. I.e. the
+        target ID is the same and the (ideal) time of acquisition is at, or after,
+        the request arrival time. Effectively, this bundle could be delivered in
+        response to this request.
+
+        Args:
+            request: A Request object
+
+        Returns:
+            A boolean indicating whether (True) or not (False) the request is already
+            being handled by an existing task
+        """
+        for task in self.task_table:
+            if task.target == request.target_id and task.time_acquire >= \
+                    request.time_created:
+                task.request_ids.append(request.uid)
+                return True
+        return False
 
     # *** CONTACT HANDLING ***
     def contact_controller(self, env):
@@ -84,7 +110,7 @@ class Node:
             time_to_contact_start = next_contact.start - env.now
             # Delay until the contact starts and then resume
             yield env.timeout(time_to_contact_start)
-            if next_contact.to >= 1000:
+            if next_contact.to in self.targets:
                 self.target_procedure(env.now, next_contact.to)
             else:
                 env.process(self.contact_procedure(env, next_contact))
@@ -117,8 +143,26 @@ class Node:
         print(f"contact started on {self.uid} with {contact.to} at {env.now}")
         self.handshake(env, contact.to, contact.owlt)
         while env.now < contact.end:
+            # If the task table has been updated while we've been in this contact,
+            # send that before sharing any more bundles as it may be of value to the
+            # neighbour
+            if self.task_table_updated:
+                env.process(
+                    self.bundle_send(
+                        env,
+                        deepcopy(self.task_table),
+                        contact.to,
+                        contact.owlt,
+                        True
+                    )
+                )
+                self.task_table_updated = False
+                yield env.timeout(0)
+                continue
+
+            # If we don't have any bundles waiting in the current neighbour's outbound
+            # queue, we can just wait a bit and try again later
             if not self.outbound_queues[contact.to]:
-                # If the outbound queue for this node is empty, wait and check again
                 yield env.timeout(1)
                 continue
 
@@ -137,8 +181,17 @@ class Node:
                     )
                 )
                 # Wait until the bundle has been sent (note it may not have been fully
-                # received at this time, due to the OWLT)
+                # received at this time, due to the OWLT, but that's fine)
                 yield env.timeout(send_time)
+
+            # If we don't have enough time remaining to send this bundle, pop it into a
+            # list that can be processed (i.e. returned to the buffer) after the
+            # contact. If we added it back into the buffer right away, it might get put
+            # right back into the outbound queue...
+            # FIXME We should technically be able to put this into the buffer to get
+            #  reprocessed, because if there's insufficient resources to handle this
+            #  bundle over this contact, that should get spotted during the bundle
+            #  assignment process and it should therefore NOT get added to the OBQ
             else:
                 failed_bundles.append(bundle)
 

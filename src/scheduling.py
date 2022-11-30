@@ -24,7 +24,7 @@ class Request:
 
     def __post_init__(self):
         # Define a unique ID based on the time of request arrival and ID of the target
-        self.__uid = f"{self.time_created}_{self.target_id}"
+        self.__uid = f"{self.time_created:.3f}_{self.target_id}"
 
     @property
     def uid(self):
@@ -33,7 +33,6 @@ class Request:
 
 @dataclass
 class Task:
-    request_id: str
     deadline_acquire: int
     deadline_delivery: int
     target: int
@@ -46,6 +45,7 @@ class Task:
     time_deliver: int | float = None  # Intended delivery time
     acq_path: List = field(default_factory=lambda: [])
     del_path: List = field(default_factory=lambda: [])
+    request_ids: List = field(default_factory=lambda: [])
     _acquired_at: int | float = None
     _delivered_at: int | float = None
     _status: str = "pending"
@@ -88,26 +88,25 @@ class Scheduler:
         :param request:
         :return:
         """
-        # TODO setting the UID of the Scheduler to = 1
         acq_path, del_path = self._cgs_routing(self.uid, request, curr_time, contact_plan)
         if acq_path and del_path:
             for hop in del_path.hops:
                 hop.volume -= request.data_volume
             task = Task(
-                request.uid,
-                request.time_acq,
-                request.time_del,
-                request.target_id,
-                request.priority,
-                request.destination,
-                request.data_volume,
-                del_path.hops[0].frm,
-                curr_time,
-                acq_path.bdt,
-                del_path.bdt,
-                [x.uid for x in acq_path.hops],
-                [x.uid for x in del_path.hops]
+                deadline_acquire=request.time_acq,
+                deadline_delivery=request.time_del,
+                target=request.target_id,
+                priority=request.priority,
+                destination=request.destination,
+                size=request.data_volume,
+                assignee=del_path.hops[0].frm,
+                scheduled_at=curr_time,
+                time_acquire=acq_path.bdt,
+                time_deliver=del_path.bdt,
+                acq_path=[x.uid for x in acq_path.hops],
+                del_path=[x.uid for x in del_path.hops]
             )
+            task.request_ids.append(request.uid)
             pub.sendMessage("task_added", t=task)
             return task
 

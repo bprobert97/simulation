@@ -24,7 +24,7 @@ SCHEDULER_BUFFER_CAPACITY = 1000
 NUM_NODES = 4
 NODE_BUFFER_CAPACITY = 100
 NUM_BUNDLES = [5, 10]
-REQUEST_ARRIVAL_WAIT = 60  # average waiting time between requests
+REQUEST_ARRIVAL_WAIT = 240  # average waiting time between requests (s)
 BUNDLE_SIZE = [1, 3]
 BUNDLE_ARRIVAL_RATE = 0.2  # Mean number of bundles to be generated per unit time
 BUNDLE_TTL = 25  # Time to live for a
@@ -37,7 +37,7 @@ def requests_generator(env, sources, sinks, moc):
 	nodes.
 	"""
 	while True:
-		yield env.timeout(random.expovariate(REQUEST_ARRIVAL_WAIT))
+		yield env.timeout(random.expovariate(1 / REQUEST_ARRIVAL_WAIT))
 		# yield env.timeout(0)
 		request = Request(
 			random.choice(sources),
@@ -54,7 +54,7 @@ def bundle_generator(env, sources, destinations):
 	duration of the simulation
 	"""
 	while True:
-		yield env.timeout(random.expovariate(1 / BUNDLE_ARRIVAL_RATE))
+		yield env.timeout(random.expovariate(BUNDLE_ARRIVAL_RATE))
 		source = random.choice(sources)
 		dests = [x for x in destinations if x.uid != source.uid]
 		destination = random.choice(dests)
@@ -66,16 +66,17 @@ def bundle_generator(env, sources, destinations):
 		pub.sendMessage("bundle_acquired", b=b)
 
 
-def init_space_nodes(satellites, gateways, cp):
-	node_ids = [x for x in {**satellites,  **gateways}]
+def init_space_nodes(nodes, targets, cp):
+	node_ids = [x for x in nodes]
 	node_list = []
-	for n_uid, n in {**satellites,  **gateways}.items():
+	for n_uid, n in nodes.items():
 		n = Node(
 				n_uid,
 				buffer=Buffer(NODE_BUFFER_CAPACITY),
 				outbound_queues={x: [] for x in node_ids},
 				contact_plan=deepcopy(cp)
 		)
+		n.targets = targets
 		pub.subscribe(n.bundle_receive, str(n_uid) + "bundle")
 		node_list.append(n)
 	return node_list
@@ -217,10 +218,10 @@ if __name__ == "__main__":
 		buffer=Buffer(SCHEDULER_BUFFER_CAPACITY),
 		contact_plan=cp,
 		scheduler=Scheduler(SCHEDULER_ID),
-		outbound_queues={x: [] for x in range(1, NUM_NODES + 1)}
+		outbound_queues={x: [] for x in {**satellites,  **gateways}}
 	)
 	# nodes = init_nodes(NUM_NODES, cp)
-	nodes = init_space_nodes(satellites, gateways, cp)
+	nodes = init_space_nodes({**satellites,  **gateways}, [x for x in targets], cp)
 	create_route_tables(nodes, cp)
 	# env.process(bundle_generator(env, nodes, nodes))
 	env.process(requests_generator(
@@ -236,6 +237,6 @@ if __name__ == "__main__":
 		#  route discovery (if applicable)
 
 	analytics = init_analytics()
-	env.run(until=5000)
+	env.run(until=inputs["simulation"]["duration"])
 
 	print('')
