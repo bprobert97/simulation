@@ -31,7 +31,45 @@ class Node:
     def __post_init__(self):
         # TODO will need to update this IF we update the contact plan
         self.contact_plan_self = [c for c in self.contact_plan if c.frm == self.uid]
+        self.request_queue = []
+        self.task_table = []
 
+    # *** REQUEST HANDLING (I.E. SCHEDULING) ***
+    def request_received(self, request, t_now):
+        """
+        When a request is received, it gets added to the request queue
+        """
+        self.request_queue.append(request)
+
+        # TODO this will trigger the request processing immediately having received a
+        #  request, however we may want to set this process to be periodic
+        self.process_requests(t_now)
+
+    def process_requests(self, curr_time):
+        """
+        Process each request in the queue, by identifying the assignee-target contact
+        that will collect the payload, creating a Task for this and adding it to the table
+        :return:
+        """
+        while self.request_queue:
+            request = self.request_queue.pop(0)
+            # Adjust the contact plan to include contacts with the target node
+            # self._add_target_contacts(request)
+            task = self.scheduler.schedule_task(request, curr_time, self.contact_plan)
+
+            # If a task has been created (i.e. there is a feasible acquisition and
+            # delivery opportunity), add the task to the table. Else, that request
+            # cannot be fulfilled so log something to that effect
+            # TODO If the task table has been updated, it should be shared with anyone
+            #  with whom we are currently in a contact, since it may be of value to them
+            if task:
+                self.task_table.append(task)
+            else:
+                print(f"Request for {request.target_id}, submitted at "
+                      f"{request.time_created} cannot be processed")
+            # self._remove_contact_from_cp(request.target_id)
+
+    # *** CONTACT HANDLING ***
     def contact_controller(self, env):
         """
         Generator that triggers the start and end of contacts according to the contact
@@ -166,6 +204,7 @@ class Node:
         pub.sendMessage("bundle_forwarded")
         self.buffer.append(bundle)
 
+    # *** BUNDLE & TASK TABLE HANDLING ***
     def bundle_assignment_controller(self, env):
         while True:
             self.bundle_assignment(env)

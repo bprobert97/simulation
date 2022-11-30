@@ -30,7 +30,7 @@ BUNDLE_ARRIVAL_RATE = 0.2  # Mean number of bundles to be generated per unit tim
 BUNDLE_TTL = 25  # Time to live for a
 
 
-def requests_generator(env, sources, sinks, scheduler):
+def requests_generator(env, sources, sinks, moc):
 	"""
 	Generate requests that get submitted to a scheduler where they are processed into
 	tasks, added to a task table, and distributed through the network for execution by
@@ -45,9 +45,7 @@ def requests_generator(env, sources, sinks, scheduler):
 			data_volume=1,  # random.randint(*BUNDLE_SIZE),
 			time_created=env.now
 		)
-		scheduler.moc.request_received(request, env.now)
-		scheduler.task_table = scheduler.moc.task_table
-		break
+		moc.request_received(request, env.now)
 
 
 def bundle_generator(env, sources, destinations):
@@ -218,7 +216,7 @@ if __name__ == "__main__":
 		SCHEDULER_ID,
 		buffer=Buffer(SCHEDULER_BUFFER_CAPACITY),
 		contact_plan=cp,
-		scheduler=Scheduler(SCHEDULER_ID, contact_plan=deepcopy(cp)),
+		scheduler=Scheduler(SCHEDULER_ID),
 		outbound_queues={x: [] for x in range(1, NUM_NODES + 1)}
 	)
 	# nodes = init_nodes(NUM_NODES, cp)
