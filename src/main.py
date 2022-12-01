@@ -30,14 +30,26 @@ BUNDLE_ARRIVAL_RATE = 0.2  # Mean number of bundles to be generated per unit tim
 BUNDLE_TTL = 25  # Time to live for a
 
 
-def requests_generator(env, sources, sinks, moc):
+def request_inter_arrival_time_from_congestion(
+		sim_time, outflow, congestion, bundle_size) -> int:
+	"""Returns the mean time between request arrivals based on congestion target.
+
+	Given a certain amount of delivery capacity (i.e. the long-term average rate of
+	delivery per unit time), some target level of congestion in the network (ratio of
+	inflow to outflow) and the size of each bundle (i.e. the package generated in
+	response to a request), return the mean time to wait between request arrivals.
+	"""
+	return (sim_time * bundle_size) / (outflow * congestion)
+
+
+def requests_generator(env, sources, sinks, moc, inter_arrival_time):
 	"""
 	Generate requests that get submitted to a scheduler where they are processed into
 	tasks, added to a task table, and distributed through the network for execution by
 	nodes.
 	"""
 	while True:
-		yield env.timeout(random.expovariate(1 / REQUEST_ARRIVAL_WAIT))
+		yield env.timeout(random.expovariate(1 / inter_arrival_time))
 		# yield env.timeout(0)
 		request = Request(
 			random.choice(sources),
