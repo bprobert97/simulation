@@ -10,6 +10,10 @@ import time
 import pickle
 
 
+R_E = 6371000.8
+MU_E = 3.986005e+14
+
+
 # *** GENERIC FUNCTIONS ***
 def assign_uid(uid_, low=1, high=9999999):
     """
@@ -269,7 +273,7 @@ def mee_to_coe(mee):
     return [a, e, i, raan, om, nu]
 
 
-def mee_to_cart(mee, mu=3.986005e+14):
+def mee_to_cart(mee, mu=MU_E):
     """ converts from mod. equinoctial ele. to cartesian
 
     :param mee
@@ -571,3 +575,8 @@ def greg2jd(month, day, year):
     jdn = jd + day + b + 1720994.5
 
     return jdn
+
+
+def generate_even_dist_on_earth(n):
+    points_xyz = fibonacci_sphere(n)
+    return [[x * R_E for x in y] for y in points_xyz]

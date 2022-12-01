@@ -3,10 +3,18 @@
 
 class Analytics:
 	def __init__(self):
+		self.requests = []
+		self.requests_submitted = 0
+		self.requests_failed = 0
+
+		# The number of submitted requests already handled by existing tasks
+		self.requests_duplicated = 0
+
 		self.tasks = []
-		self.failed_tasks = 0
-		self.redundant_tasks = 0
-		self.renewed_tasks = 0
+		self.tasks_processed = 0
+		self.tasks_failed = 0
+		self.tasks_redundant = 0
+		self.tasks_renewed = 0
 
 		self.bundles = []
 		self.bundles_acquired = 0
@@ -15,20 +23,31 @@ class Analytics:
 		self.bundles_dropped = 0
 		self.bundles_rerouted = 0
 
+	def submit_request(self, r):
+		self.requests.append(r)
+		self.requests_submitted += 1
+
+	def fail_request(self):
+		self.requests_failed += 1
+
+	def duplicated_request(self):
+		self.requests_duplicated += 1
+
 	def add_task(self, t):
 		self.tasks.append(t)
+		self.tasks_processed += 1
 
-	def task_failed(self):
-		self.failed_tasks += 1
+	def fail_task(self):
+		self.tasks_failed += 1
 
-	def task_redundant(self):
-		self.redundant_tasks += 1
+	def redundant_task(self):
+		self.tasks_redundant += 1
 
-	def task_renewal(self):
+	def renew_task(self):
 		"""
 		If a redundant task is replaced by a new task, this method is triggered
 		"""
-		self.renewed_tasks += 1
+		self.tasks_renewed += 1
 
 	def add_bundle(self, b):
 		self.bundles.append(b)

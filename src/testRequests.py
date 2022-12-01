@@ -1,5 +1,5 @@
 import unittest
-from src.main import request_inter_arrival_time_from_congestion
+from src.main import get_request_inter_arrival_time
 
 
 class RequestArrivalTests(unittest.TestCase):
@@ -11,7 +11,7 @@ class RequestArrivalTests(unittest.TestCase):
 
         # Assert that the inter-request arrival time should be 80, for the above
         self.assertEqual(
-            request_inter_arrival_time_from_congestion(
+            get_request_inter_arrival_time(
                 simulation_time, outflow, congestion, bundle_size
             ), 80
         )

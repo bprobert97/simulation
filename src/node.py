@@ -11,7 +11,8 @@ from scheduling import Scheduler, Request
 from bundles import Buffer, Bundle
 
 
-OUTBOUND_QUEUE_CHECK_INTERVAL = 1
+OUTBOUND_QUEUE_INTERVAL = 1
+BUNDLE_ASSIGN_REPEAT_TIME = 1
 
 
 @dataclass
@@ -25,8 +26,9 @@ class Node:
     buffer: Buffer = Buffer()
     outbound_queues: Dict = field(default_factory=dict)
     contact_plan: List = field(default_factory=list)
-    bundle_assignment_repeat_time: int = field(default=1)
 
+    _bundle_assign_repeat: int = field(init=False, default=BUNDLE_ASSIGN_REPEAT_TIME)
+    _outbound_repeat_interval: int = field(init=False, default=OUTBOUND_QUEUE_INTERVAL)
     route_table: Dict = field(init=False, default_factory=dict)
     request_queue: List = field(init=False, default_factory=list)
     task_table: List = field(init=False, default_factory=list)
@@ -61,6 +63,7 @@ class Node:
             request = self.request_queue.pop(0)
             # Check to see if any existing tasks exist that could service this request.
             if self._is_request_serviced(request):
+                pub.sendMessage("request_duplicated")
                 continue
 
             task = self.scheduler.schedule_task(request, curr_time, self.contact_plan)
@@ -94,7 +97,7 @@ class Node:
             being handled by an existing task
         """
         for task in self.task_table:
-            if task.target == request.target_id and task.time_acquire >= \
+            if task.target == request.target_id and task.pickup_time >= \
                     request.time_created:
                 task.request_ids.append(request.uid)
                 return True
@@ -126,20 +129,21 @@ class Node:
         Procedure to follow if we're in contact w/ a Target node
         """
         for task in self.task_table:
-            if task.time_acquire == t_now and task.target == target:
-                self.buffer.append(
-                    Bundle(
-                        src=self.uid,
-                        dst=task.destination,
-                        target_id=target,
-                        size=task.size,
-                        lifetime=task.deadline_delivery,
-                        created_at=t_now,
-                        priority=task.priority
-                    )
+            if task.pickup_time == t_now and task.target == target:
+                bundle_lifetime = min(task.deadline_delivery, t_now+task.lifetime)
+                bundle = Bundle(
+                    src=self.uid,
+                    dst=task.destination,
+                    target_id=target,
+                    size=task.size,
+                    lifetime=bundle_lifetime,
+                    created_at=t_now,
+                    priority=task.priority
                 )
+                self.buffer.append(bundle)
                 print(f"Bundle acquired on node {self.uid} at time {t_now} from target "
                       f"{target}")
+                pub.sendMessage("bundle_acquired", b=bundle)
                 return
 
     def _node_contact_procedure(self, env, contact):
@@ -148,7 +152,7 @@ class Node:
         applicable/possible), sending of data and closing down contact
         """
         failed_bundles = []
-        print(f"contact started on {self.uid} with {contact.to} at {env.now}")
+        # print(f"contact started on {self.uid} with {contact.to} at {env.now}")
         self._handshake(env, contact.to, contact.owlt)
         while env.now < contact.end:
             # If the task table has been updated while we've been in this contact,
@@ -171,7 +175,7 @@ class Node:
             # If we don't have any bundles waiting in the current neighbour's outbound
             # queue, we can just wait a bit and try again later
             if not self.outbound_queues[contact.to]:
-                yield env.timeout(OUTBOUND_QUEUE_CHECK_INTERVAL)
+                yield env.timeout(self._outbound_repeat_interval)
                 continue
 
             # Extract a bundle from the outbound queue and send it over the contact
@@ -203,7 +207,7 @@ class Node:
             else:
                 failed_bundles.append(bundle)
 
-        print(f"contact between {self.uid} and {contact.to} ended at {env.now}")
+        # print(f"contact between {self.uid} and {contact.to} ended at {env.now}")
 
         # Add any bundles that couldn't fit across the contact back in to the
         #  buffer so that they can be assigned to another outbound queue.
@@ -269,7 +273,7 @@ class Node:
     def bundle_assignment_controller(self, env):
         while True:
             self._bundle_assignment(env)
-            yield env.timeout(self.bundle_assignment_repeat_time)
+            yield env.timeout(self._bundle_assign_repeat)
 
     def _bundle_assignment(self, env):
         """
@@ -361,10 +365,12 @@ class Node:
                 if task.status != self.task_table[idx].status and \
                         self.task_table[idx].status == "pending":
                     self.task_table[idx].status = task.status
+                    self._task_table_updated = True
                 else:
                     continue
             else:
                 self.task_table.append(deepcopy(task))
+                self._task_table_updated = True
 
     def _get_matching_task_idx(self, task):
         # TODO The use of this flag avoids an issue when the idx is 0, but it feels hacky

@@ -4,6 +4,7 @@ import itertools
 import random
 import sys
 import json
+import cProfile
 
 from queue import PriorityQueue
 from copy import deepcopy
@@ -22,17 +23,14 @@ from analytics import Analytics
 SCHEDULER_ID = 0
 SCHEDULER_BUFFER_CAPACITY = 1000
 NUM_NODES = 4
-NODE_BUFFER_CAPACITY = 100
+NODE_BUFFER_CAPACITY = 100000
 NUM_BUNDLES = [5, 10]
-REQUEST_ARRIVAL_WAIT = 500  # average waiting time between requests (s)
-BUNDLE_SIZE = [1, 3]
 BUNDLE_ARRIVAL_RATE = 0.2  # Mean number of bundles to be generated per unit time
 BUNDLE_TTL = 25  # Time to live for a
 CONGESTION = 0.5
 
 
-def request_inter_arrival_time_from_congestion(
-		sim_time, outflow, congestion, bundle_size) -> int:
+def get_request_inter_arrival_time(sim_time, outflow, congestion, size) -> int:
 	"""Returns the mean time between request arrivals based on congestion target.
 
 	Given a certain amount of delivery capacity (i.e. the long-term average rate of
@@ -40,10 +38,10 @@ def request_inter_arrival_time_from_congestion(
 	inflow to outflow) and the size of each bundle (i.e. the package generated in
 	response to a request), return the mean time to wait between request arrivals.
 	"""
-	return (sim_time * bundle_size) / (outflow * congestion)
+	return (sim_time * size) / (outflow * congestion)
 
 
-def requests_generator(env, sources, sinks, moc, inter_arrival_time):
+def requests_generator(env, sources, sinks, moc, inter_arrival_time, size, priority, ttl):
 	"""
 	Generate requests that get submitted to a scheduler where they are processed into
 	tasks, added to a task table, and distributed through the network for execution by
@@ -51,14 +49,17 @@ def requests_generator(env, sources, sinks, moc, inter_arrival_time):
 	"""
 	while True:
 		yield env.timeout(random.expovariate(1 / inter_arrival_time))
-		# yield env.timeout(0)
+		source = random.choice([s for s in sources.values()])
 		request = Request(
-			random.choice(sources),
+			source.uid,
 			destination=random.choice(sinks),  # random.choice(nodes),
-			data_volume=1,  # random.randint(*BUNDLE_SIZE),
-			time_created=env.now
+			data_volume=size,
+			priority=priority,
+			bundle_lifetime=ttl,
+			time_created=env.now,
 		)
 		moc.request_received(request, env.now)
+		pub.sendMessage("request_submit", r=request)
 
 
 def bundle_generator(env, sources, destinations):
@@ -156,11 +157,21 @@ def create_route_tables(nodes, cp):
 
 def init_analytics():
 	a = Analytics()
-	pub.subscribe(a.add_task, "task_added")
+
+	pub.subscribe(a.submit_request, "request_submit")
+	pub.subscribe(a.fail_request, "request_fail")
+	pub.subscribe(a.duplicated_request, "request_duplicated")
+
+	pub.subscribe(a.add_task, "task_add")
+	pub.subscribe(a.redundant_task, "task_redundant")  # TODO
+	pub.subscribe(a.fail_task, "task_failed")  # TODO
+	pub.subscribe(a.renew_task, "task_renew")  # TODO
+
 	pub.subscribe(a.add_bundle, "bundle_acquired")
 	pub.subscribe(a.deliver_bundle, "bundle_delivered")
 	pub.subscribe(a.forward_bundle, "bundle_forwarded")
 	pub.subscribe(a.drop_bundle, "bundle_dropped")
+	pub.subscribe(a.reroute_bundle, "bundle_reroute")  # TODO
 
 	return a
 
@@ -221,7 +232,7 @@ if __name__ == "__main__":
 
 	# set up the space network nodes (satellites and gateways, and if known in advance,
 	# the targets)
-	filename = "input_files//sim0.json"
+	filename = "input_files//sim_polar_simple.json"
 	with open(filename, "r") as read_content:
 		inputs = json.load(read_content)
 	times = [x for x in range(
@@ -251,10 +262,10 @@ if __name__ == "__main__":
 		[s for s in satellites]
 	)
 
-	# FIXME This won't work if we have multiple types of target with different sizes
-	bundle_size = inputs["targets"]["size"]
+	# FIXME This won't work if we have multiple types of bundles with different sizes
+	bundle_size = inputs["bundles"]["size"]
 
-	bundle_arrival_wait_time = request_inter_arrival_time_from_congestion(
+	bundle_arrival_wait_time = get_request_inter_arrival_time(
 			inputs["simulation"]["duration"],
 			download_capacity,
 			CONGESTION,
@@ -279,10 +290,13 @@ if __name__ == "__main__":
 	env = simpy.Environment()
 	env.process(requests_generator(
 		env,
-		[x for x in targets],
+		targets,
 		[x for x in gateways],
 		moc,
-		bundle_arrival_wait_time
+		bundle_arrival_wait_time,
+		bundle_size,
+		inputs["bundles"]["priority"],
+		inputs["bundles"]["lifetime"]
 	))
 
 	# Set up the Simpy Processes on each of the Nodes. These are effectively the
@@ -299,6 +313,19 @@ if __name__ == "__main__":
 		#  the Route Discovery whenever we drop below a certain number of good options
 
 	analytics = init_analytics()
-	env.run(until=inputs["simulation"]["duration"])
+	cProfile.run('env.run(until=inputs["simulation"]["duration"])')
+
+	print("*** REQUEST DATA ***")
+	print(f"{analytics.requests_submitted} Requests were submitted")
+	print(f"{analytics.requests_failed} Requests failed")
+	print(f"{analytics.requests_duplicated} Requests already handled by existing tasks\n")
+	print("*** TASK DATA ***")
+	print(f"{analytics.tasks_processed} Tasks were created")
+	print(f"{analytics.tasks_failed} Tasks were unsuccessful\n")
+	print("*** BUNDLE DATA ***")
+	print(f"{analytics.bundles_acquired} Bundles were acquired")
+	print(f"{analytics.bundles_forwarded} Bundles were forwarded")
+	print(f"{analytics.bundles_delivered} Bundles were delivered")
+	print(f"{analytics.bundles_dropped} Bundles were dropped")
 
 	print('')

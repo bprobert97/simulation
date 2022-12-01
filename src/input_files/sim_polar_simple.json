@@ -3,7 +3,7 @@
   "plot": false,
   "debug": true,
   "simulation": {
-    "duration": 86400,
+    "duration": 10000,
     "date_start": 2459659.005,
     "step_size": 10,
     "filename": "test_0",
@@ -11,27 +11,23 @@
   },
   "bundles": {
     "size": 10,
-    "lifetime": 5000,
+    "lifetime": 20000,
     "priority": 0
   },
   "targets": {
-    "type": "bespoke",
-    "name": "equatorial",
-    "min_el": 60,
-    "locations": [
-      {"lat": 0.0, "lon": 20.0, "alt": 0.0},
-      {"lat": 0.0, "lon": 70.0, "alt": 0}
-    ]
+    "type": "group",
+    "name": "distributed",
+    "n": 100,
+    "distribution": "even",
+    "min_el": 10
   },
   "gateways": {
     "type": "bespoke",
     "name": "gateways",
     "min_el": 10,
     "rate": 0,
-    "power_tx": 100,
-    "power_rx": 25,
     "locations": [
-      {"lat": -90.0, "lon": 0.0, "alt": 0.0, "name": "south_pole"}
+      {"lat": 90.0, "lon": 0.0, "alt": 0.0, "name": "north_pole"}
     ]
   },
   "satellites": {
@@ -39,7 +35,6 @@
     "dist_isl": 3000000,
     "rate_isl": 4,
     "rate_s2g": 2,
-    "storage": 1000000,
     "orbits": [
       {
         "sma": 7130.3,
@@ -51,12 +46,29 @@
         "name": "polar_sat_1"
       }, {
         "sma": 7130.3,
-        "inc": 0.0,
+        "inc": 90.0,
         "ecc": 0.0,
         "raan": 0.0,
         "aop": 0.0,
-        "ta": 0.0,
-        "name": "eq_sat_1"
+        "ta": 90.0,
+        "name": "polar_sat_2"
+      }, {
+        "sma": 7130.3,
+        "inc": 90.0,
+        "ecc": 0.0,
+        "raan": 0.0,
+        "aop": 0.0,
+        "ta": 180.0,
+        "name": "polar_sat_3"
+      },
+      {
+        "sma": 7130.3,
+        "inc": 90.0,
+        "ecc": 0.0,
+        "raan": 0.0,
+        "aop": 0.0,
+        "ta": 270.0,
+        "name": "polar_sat_4"
       }
     ]
   }

@@ -15,21 +15,16 @@
     "priority": 0
   },
   "targets": {
-    "type": "bespoke",
-    "name": "equatorial",
-    "min_el": 60,
-    "locations": [
-      {"lat": 0.0, "lon": 20.0, "alt": 0.0},
-      {"lat": 0.0, "lon": 70.0, "alt": 0}
-    ]
+    "type": "group",
+    "name": "distributed",
+    "n": 50,
+    "distribution": "even",
+    "min_el": 60
   },
   "gateways": {
     "type": "bespoke",
     "name": "gateways",
     "min_el": 10,
-    "rate": 0,
-    "power_tx": 100,
-    "power_rx": 25,
     "locations": [
       {"lat": -90.0, "lon": 0.0, "alt": 0.0, "name": "south_pole"}
     ]

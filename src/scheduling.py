@@ -11,20 +11,26 @@ from routing import Route, Contact, dijkstra_cgr
 
 @dataclass
 class Request:
-    target_id: int
+    target_id: int = None
     target_lat: float = None
     target_lon: float = None
     target_alt: float = None
-    time_acq: int = sys.maxsize
-    time_del: int = sys.maxsize
+    deadline_acquire: int = None
+    deadline_deliver: int = None
+    bundle_lifetime: int = None
     priority: int = 0
     destination: int = 999
-    data_volume: int = 5
+    data_volume: int = 1
     time_created: int = None
 
     def __post_init__(self):
         # Define a unique ID based on the time of request arrival and ID of the target
         self.__uid = f"{self.time_created:.1f}_{self.target_id}"
+
+        if not self.deadline_acquire:
+            self.deadline_acquire = sys.maxsize
+        if not self.deadline_deliver:
+            self.deadline_deliver = sys.maxsize
 
     @property
     def uid(self):
@@ -35,14 +41,15 @@ class Request:
 class Task:
     deadline_acquire: int
     deadline_delivery: int
+    lifetime: int
     target: int
     priority: int
     destination: int
     size: int
     assignee: int
     scheduled_at: int | float
-    time_acquire: int | float = None  # Intended pick-up time
-    time_deliver: int | float = None  # Intended delivery time
+    pickup_time: int | float = None  # Intended pick-up time
+    delivery_time: int | float = None  # Intended delivery time
     acq_path: List = field(default_factory=lambda: [])
     del_path: List = field(default_factory=lambda: [])
     request_ids: List = field(default_factory=lambda: [])
@@ -103,21 +110,22 @@ class Scheduler:
             for hop in del_path.hops:
                 hop.volume -= request.data_volume
             task = Task(
-                deadline_acquire=request.time_acq,
-                deadline_delivery=request.time_del,
+                deadline_acquire=request.deadline_acquire,
+                deadline_delivery=request.deadline_deliver,
+                lifetime=request.bundle_lifetime,
                 target=request.target_id,
                 priority=request.priority,
                 destination=request.destination,
                 size=request.data_volume,
                 assignee=del_path.hops[0].frm,
                 scheduled_at=curr_time,
-                time_acquire=acq_path.bdt,
-                time_deliver=del_path.bdt,
+                pickup_time=acq_path.bdt,
+                delivery_time=del_path.bdt,
                 acq_path=[x.uid for x in acq_path.hops],
                 del_path=[x.uid for x in del_path.hops]
             )
             task.request_ids.append(request.uid)
-            pub.sendMessage("task_added", t=task)
+            pub.sendMessage("task_add", t=task)
             return task
 
         else:
@@ -126,6 +134,7 @@ class Scheduler:
             # TODO add in some exception that handles a lack of feasible acquisition
             print(f"No task was created for request {request.uid} as either acquisition "
                   f"or delivery wasn't feasible")
+            pub.sendMessage("request_fail")
             return
 
     def _cgs_routing(self, root: int, request: Request, curr_time: int, contact_plan
@@ -169,7 +178,7 @@ class Scheduler:
             #  must be a cleaner way to use this, e.g. having a "Router" object that is
             #  an attribute on both this scheduler and the node objects??
             path_acq = dijkstra_cgr(contact_plan, root, request.target_id,
-                                    request.time_acq)
+                                    request.deadline_acquire)
 
             if not path_acq or path_acq.bdt >= earliest_delivery_time:
                 break
@@ -197,7 +206,7 @@ class Scheduler:
                 contact_plan,
                 root_delivery,
                 request.destination,
-                request.time_del,
+                request.deadline_deliver,
                 request.data_volume
             )
 

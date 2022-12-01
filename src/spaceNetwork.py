@@ -1,8 +1,9 @@
-from math import radians, pi, sin, cos, sqrt
+from math import radians, pi, sin, cos, sqrt, degrees
 
 import numpy as np
 from scipy.integrate import odeint
-from src.misc import gast, topo_to_eci, mee_to_cart, mee_to_coe, coe_to_mee
+from src.misc import gast, topo_to_eci, mee_to_cart, mee_to_coe, coe_to_mee, \
+    generate_even_dist_on_earth, eci_to_geod
 
 
 class GroundNode:
@@ -253,18 +254,31 @@ class Orbit:
 
 def setup_ground_nodes(jd_start, duration, t_step, nodes, is_source=False, id_counter=0):
     nodes_dict = {}
-    for node in nodes["locations"]:
+    locations = []
+    if nodes["type"] == "bespoke":
+        for loc in nodes["locations"]:
+            locations.append([loc["lat"], loc["lon"], loc["alt"]])
+
+    elif nodes["type"] == "group":
+        if nodes["distribution"] == "even":
+            points_scaled = generate_even_dist_on_earth(nodes["n"])
+            for p in points_scaled:
+                lat, lon, alt = eci_to_geod(jd_start, p)
+                locations.append([degrees(lat), degrees(lon), alt])
+
+    for location in locations:
         n = GroundNode(
             id_counter,
-            node["lat"],
-            node["lon"],
-            node["alt"],
+            location[0],
+            location[1],
+            location[2],
             min_el=nodes["min_el"],
             is_source=is_source
         )
         n.eci_coords(jd_start, duration, t_step)
-        nodes_dict[id_counter] = n
+        nodes_dict[n.uid] = n
         id_counter += 1
+
     return nodes_dict
 
 
