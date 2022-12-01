@@ -12,7 +12,7 @@
   "targets": {
     "type": "bespoke",
     "name": "equatorial",
-    "size": 800,
+    "size": 10,
     "ttl": 5000,
     "priority": 1,
     "min_el": 60,

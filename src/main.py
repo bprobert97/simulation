@@ -28,6 +28,7 @@ REQUEST_ARRIVAL_WAIT = 500  # average waiting time between requests (s)
 BUNDLE_SIZE = [1, 3]
 BUNDLE_ARRIVAL_RATE = 0.2  # Mean number of bundles to be generated per unit time
 BUNDLE_TTL = 25  # Time to live for a
+CONGESTION = 0.5
 
 
 def request_inter_arrival_time_from_congestion(
@@ -193,6 +194,20 @@ def init_space_network(inputs_):
 	return targets, satellites, gateways
 
 
+def get_download_capacity(contact_plan, sinks, sats):
+	"""Return the total delivery capacity from satellites to gateway nodes
+
+	The total download capacity is the sum of the data transfer capacity from all
+	possible download opportunities (i.e. from satellite to gateway)
+	"""
+	# TODO This does not consider any overlap restrictions that may exist
+	total = 0
+	for contact in contact_plan:
+		if contact.frm in sats and contact.to in sinks:
+			total += contact.volume
+	return total
+
+
 if __name__ == "__main__":
 	"""
 	Contact Graph Scheduling implementation
@@ -230,6 +245,22 @@ if __name__ == "__main__":
 			Contact(SCHEDULER_ID, g, 0, inputs["simulation"]["duration"], sys.maxsize)
 		)
 
+	download_capacity = get_download_capacity(
+		cp,
+		[g for g in gateways],
+		[s for s in satellites]
+	)
+
+	# FIXME This won't work if we have multiple types of target with different sizes
+	bundle_size = inputs["targets"]["size"]
+
+	bundle_arrival_wait_time = request_inter_arrival_time_from_congestion(
+			inputs["simulation"]["duration"],
+			download_capacity,
+			CONGESTION,
+			bundle_size
+		)
+
 	# Instantiate the Mission Operations Center, i.e. the Node at which requests arrive
 	# and then set up each of the remote nodes (including both satellites and gateways).
 	moc = Node(
@@ -246,7 +277,13 @@ if __name__ == "__main__":
 	# Initiate the simpy environment, which keeps track of the event queue and triggers
 	# the next discrete event to take place
 	env = simpy.Environment()
-	env.process(requests_generator(env, [x for x in targets], [x for x in gateways], moc))
+	env.process(requests_generator(
+		env,
+		[x for x in targets],
+		[x for x in gateways],
+		moc,
+		bundle_arrival_wait_time
+	))
 
 	# Set up the Simpy Processes on each of the Nodes. These are effectively the
 	# generators that iterate continuously throughout the simulation, allowing us to
