@@ -3,7 +3,7 @@
   "plot": false,
   "debug": true,
   "simulation": {
-    "duration": 10000,
+    "duration": 100000,
     "date_start": 2459659.005,
     "step_size": 10,
     "filename": "test_0",
@@ -50,25 +50,24 @@
         "ecc": 0.0,
         "raan": 0.0,
         "aop": 0.0,
-        "ta": 90.0,
-        "name": "polar_sat_2"
+        "ta": 180.0,
+        "name": "polar_sat_1"
       }, {
         "sma": 7130.3,
-        "inc": 90.0,
+        "inc": 0.0,
+        "ecc": 0.0,
+        "raan": 0.0,
+        "aop": 0.0,
+        "ta": 0.0,
+        "name": "eq_sat_1"
+      }, {
+        "sma": 7130.3,
+        "inc": 0.0,
         "ecc": 0.0,
         "raan": 0.0,
         "aop": 0.0,
         "ta": 180.0,
-        "name": "polar_sat_3"
-      },
-      {
-        "sma": 7130.3,
-        "inc": 90.0,
-        "ecc": 0.0,
-        "raan": 0.0,
-        "aop": 0.0,
-        "ta": 270.0,
-        "name": "polar_sat_4"
+        "name": "eq_sat_2"
       }
     ]
   }

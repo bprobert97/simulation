@@ -325,7 +325,7 @@ if __name__ == "__main__":
 
 	print("*** REQUEST DATA ***")
 	print(f"{analytics.requests_submitted} Requests were submitted")
-	print(f"{analytics.requests_failed} Requests failed")
+	print(f"{analytics.requests_failed} Requests could not be fulfilled")
 	print(f"{analytics.requests_duplicated} Requests already handled by existing tasks\n")
 	print("*** TASK DATA ***")
 	print(f"{analytics.tasks_processed} Tasks were created")
