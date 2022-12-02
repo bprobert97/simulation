@@ -81,8 +81,8 @@ class Scheduler:
     a certain Contact Plan"""
     parent = None
 
-    def schedule_task(self, request: Request, curr_time: int, contact_plan: list
-                      ) -> Task | None:
+    def schedule_task(self, request: Request, curr_time: int, contact_plan: list,
+                      contact_plan_targets: list) -> Task | None:
         """
 
         Identify the contact, between a satellite & target, in which the request should
@@ -104,11 +104,26 @@ class Scheduler:
             task: a Task object (if possible), else None
 
         """
+        # TODO This is fine while we have a contact plan with target contacts
+        #  available, but in the more general case we're more likely to simply have a
+        #  target location with which we need to evaluate (in real time) contact
+        #  opportunities
+        contact_plan.extend([c for c in contact_plan_targets if c.to == request.target_id])
+
         acq_path, del_path = self._cgs_routing(self.parent.uid, request, curr_time,
                                                contact_plan)
+
+        # Remove any contacts with this target before moving on, so that we don't clutter
+        [
+            contact_plan.remove(x) for x in [
+                c for c in contact_plan_targets if c.to == request.target_id
+            ]
+        ]
+
         if acq_path and del_path:
             for hop in del_path.hops:
                 hop.volume -= request.data_volume
+
             task = Task(
                 deadline_acquire=request.deadline_acquire,
                 deadline_delivery=request.deadline_deliver,
@@ -124,13 +139,14 @@ class Scheduler:
                 acq_path=[x.uid for x in acq_path.hops],
                 del_path=[x.uid for x in del_path.hops]
             )
+
             task.request_ids.append(request.uid)
             pub.sendMessage("task_add", t=task)
             return task
 
         else:
-            # If no assignee has been identified, then it means there's no feasible way the
-            # data can be acquired and delivered that fulfills the requirements.
+            # If no assignee has been identified, then it means there's no feasible way
+            # the data can be acquired and delivered that fulfills the requirements.
             # TODO add in some exception that handles a lack of feasible acquisition
             print(f"No task was created for request {request.uid} as either acquisition "
                   f"or delivery wasn't feasible")

@@ -84,7 +84,7 @@ def bundle_generator(env, sources, destinations):
 		pub.sendMessage("bundle_acquired", b=b)
 
 
-def init_space_nodes(nodes, targets, cp):
+def init_space_nodes(nodes, targets, cp, cpwt):
 	node_ids = [x for x in nodes]
 	node_list = []
 	for n_uid, n in nodes.items():
@@ -92,7 +92,8 @@ def init_space_nodes(nodes, targets, cp):
 				n_uid,
 				buffer=Buffer(NODE_BUFFER_CAPACITY),
 				outbound_queues={x: [] for x in node_ids},
-				contact_plan=deepcopy(cp)
+				contact_plan=deepcopy(cp),
+				contact_plan_targets=deepcopy(cpwt)
 		)
 		n._targets = targets
 		pub.subscribe(n._bundle_receive, str(n_uid) + "bundle")
@@ -242,11 +243,14 @@ if __name__ == "__main__":
 
 	cp = review_contacts(
 		times,
-		{**satellites, **gateways, **targets},
+		{**satellites, **targets, **gateways},
 		satellites,
 		gateways,
 		targets
 	)
+
+	cp_with_targets = [c for c in cp if c.to in [t for t in targets]]
+	cp = [c for c in cp if c.to not in [t for t in targets]]
 
 	# Add a permanent contact between the MOC and the Gateways so that they can always
 	# be up-to-date in terms of the Task Table
@@ -278,11 +282,15 @@ if __name__ == "__main__":
 		SCHEDULER_ID,
 		buffer=Buffer(SCHEDULER_BUFFER_CAPACITY),
 		contact_plan=cp,
+		contact_plan_targets=cp_with_targets,
 		scheduler=Scheduler(),
 		outbound_queues={x: [] for x in {**satellites,  **gateways}}
 	)
 	moc.scheduler.parent = moc
-	nodes = init_space_nodes({**satellites,  **gateways}, [x for x in targets], cp)
+
+	nodes = init_space_nodes(
+		{**satellites,  **gateways}, [x for x in targets], cp, cp_with_targets)
+
 	create_route_tables(nodes, cp)
 
 	# Initiate the simpy environment, which keeps track of the event queue and triggers

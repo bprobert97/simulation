@@ -15,7 +15,7 @@ from spaceNetwork import Spacecraft, GroundNode
 from routing import Contact
 
 
-def review_contacts(all_times, all_nodes, satellites, gateways, targets):
+def review_contacts(all_times, all_nodes, satellites, gateways, targets=None):
     """
     Given a set of satellites, gateways (destinations) and targets (sources), identify
     the contacts and return a contact plan (list of Contact objects)

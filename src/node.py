@@ -26,6 +26,7 @@ class Node:
     buffer: Buffer = Buffer()
     outbound_queues: Dict = field(default_factory=dict)
     contact_plan: List = field(default_factory=list)
+    contact_plan_targets: List = field(default_factory=list)
 
     _bundle_assign_repeat: int = field(init=False, default=BUNDLE_ASSIGN_REPEAT_TIME)
     _outbound_repeat_interval: int = field(init=False, default=OUTBOUND_QUEUE_INTERVAL)
@@ -41,6 +42,10 @@ class Node:
     def __post_init__(self) -> None:
         # TODO will need to update this IF we update the contact plan
         self._contact_plan_self = [c for c in self.contact_plan if c.frm == self.uid]
+        self._contact_plan_self.extend(
+            [c for c in self.contact_plan_targets if c.frm == self.uid]
+        )
+        self._contact_plan_self.sort()
 
     # *** REQUEST HANDLING (I.E. SCHEDULING) ***
     def request_received(self, request, t_now):
@@ -66,7 +71,8 @@ class Node:
                 pub.sendMessage("request_duplicated")
                 continue
 
-            task = self.scheduler.schedule_task(request, curr_time, self.contact_plan)
+            task = self.scheduler.schedule_task(request, curr_time, self.contact_plan,
+                                                self.contact_plan_targets)
 
             # If a task has been created (i.e. there is a feasible acquisition and
             # delivery opportunity), add the task to the table. Else, that request
