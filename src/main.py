@@ -20,7 +20,6 @@ from spaceMobility import review_contacts
 from analytics import Analytics
 
 
-SCHEDULER_ID = 0
 SCHEDULER_BUFFER_CAPACITY = 1000
 NUM_NODES = 4
 NODE_BUFFER_CAPACITY = 100000
@@ -28,6 +27,12 @@ NUM_BUNDLES = [5, 10]
 BUNDLE_ARRIVAL_RATE = 0.2  # Mean number of bundles to be generated per unit time
 BUNDLE_TTL = 25  # Time to live for a
 CONGESTION = 0.5
+TARGET_UID = 999
+
+SCHEDULER_ID = 0
+TARGET_ID_BASE = 3000
+SATELLITE_ID_BASE = 2000
+GATEWAY_ID_BASE = 1000
 
 
 def get_request_inter_arrival_time(sim_time, outflow, congestion, size) -> int:
@@ -177,30 +182,30 @@ def init_analytics():
 	return a
 
 
-def init_space_network(inputs_):
+def init_space_network(epoch, duration, step_size, targets_, satellites_, gateways_):
 	targets = setup_ground_nodes(
-		inputs_["simulation"]["date_start"],
-		inputs_["simulation"]["duration"],
-		inputs_["simulation"]["step_size"],
-		inputs_["targets"],
+		epoch,
+		duration,
+		step_size,
+		targets_,
 		is_source=True,
-		id_counter=1000
+		id_counter=TARGET_ID_BASE
 	)
 
 	satellites = setup_satellites(
-		inputs_["simulation"]["date_start"],
-		inputs_["simulation"]["duration"],
-		inputs_["simulation"]["step_size"],
-		inputs_["satellites"],
-		counter=2000
+		epoch,
+		duration,
+		step_size,
+		satellites_,
+		counter=SATELLITE_ID_BASE
 	)
 
 	gateways = setup_ground_nodes(
-		inputs_["simulation"]["date_start"],
-		inputs_["simulation"]["duration"],
-		inputs_["simulation"]["step_size"],
-		inputs_["gateways"],
-		id_counter=3000
+		epoch,
+		duration,
+		step_size,
+		gateways_,
+		id_counter=GATEWAY_ID_BASE
 	)
 
 	return targets, satellites, gateways
@@ -236,10 +241,16 @@ if __name__ == "__main__":
 	filename = "input_files//sim_polar_simple.json"
 	with open(filename, "r") as read_content:
 		inputs = json.load(read_content)
-	times = [x for x in range(
-		0, inputs["simulation"]["duration"], inputs["simulation"]["step_size"]
-	)]
-	targets, satellites, gateways = init_space_network(inputs)
+
+	sim_epoch = inputs["simulation"]["date_start"]
+	sim_duration = inputs["simulation"]["duration"]
+	sim_step_size = inputs["simulation"]["step_size"]
+	times = [x for x in range(0, sim_duration, sim_step_size)]
+
+	targets, satellites, gateways = init_space_network(
+		sim_epoch, sim_duration, sim_step_size, inputs["targets"], inputs["satellites"],
+		inputs["gateways"]
+	)
 
 	cp = review_contacts(
 		times,
@@ -249,28 +260,29 @@ if __name__ == "__main__":
 		targets
 	)
 
+	# Create a contact plan that ONLY has contacts with target nodes and a contact plan
+	# that ONLY has contacts NOT with target nodes. The target CP will be used to
+	# extend the non-target one during request processing, but since target nodes don't
+	# participate in routing, they slow down the route discovery process if considered.
 	cp_with_targets = [c for c in cp if c.to in [t for t in targets]]
 	cp = [c for c in cp if c.to not in [t for t in targets]]
 
 	# Add a permanent contact between the MOC and the Gateways so that they can always
 	# be up-to-date in terms of the Task Table
 	for g in gateways:
-		cp.insert(
-			0,
-			Contact(SCHEDULER_ID, g, 0, inputs["simulation"]["duration"], sys.maxsize)
-		)
+		cp.insert(0, Contact(SCHEDULER_ID, g, 0, sim_duration, sys.maxsize))
 
 	download_capacity = get_download_capacity(
 		cp,
-		[g for g in gateways],
-		[s for s in satellites]
+		[*gateways],
+		[*satellites]
 	)
 
 	# FIXME This won't work if we have multiple types of bundles with different sizes
 	bundle_size = inputs["bundles"]["size"]
 
 	bundle_arrival_wait_time = get_request_inter_arrival_time(
-			inputs["simulation"]["duration"],
+			sim_duration,
 			download_capacity,
 			CONGESTION,
 			bundle_size
@@ -289,7 +301,7 @@ if __name__ == "__main__":
 	moc.scheduler.parent = moc
 
 	nodes = init_space_nodes(
-		{**satellites,  **gateways}, [x for x in targets], cp, cp_with_targets)
+		{**satellites,  **gateways}, [*targets], cp, cp_with_targets)
 
 	create_route_tables(nodes, cp)
 
@@ -321,7 +333,7 @@ if __name__ == "__main__":
 		#  the Route Discovery whenever we drop below a certain number of good options
 
 	analytics = init_analytics()
-	cProfile.run('env.run(until=inputs["simulation"]["duration"])')
+	cProfile.run('env.run(until=sim_duration)')
 
 	print("*** REQUEST DATA ***")
 	print(f"{analytics.requests_submitted} Requests were submitted")
