@@ -101,7 +101,7 @@ def init_space_nodes(nodes, targets, cp, cpwt):
 				contact_plan_targets=deepcopy(cpwt)
 		)
 		n._targets = targets
-		pub.subscribe(n._bundle_receive, str(n_uid) + "bundle")
+		pub.subscribe(n.bundle_receive, str(n_uid) + "bundle")
 		node_list.append(n)
 	return node_list
 
@@ -120,7 +120,7 @@ def init_nodes(num_nodes, cp):
 		# this node. This will execute the bundle_receive() method on board the
 		# receiving node at the time when the FULL bundle has been received, including
 		# any delay incurred through travel (OWLT)
-		pub.subscribe(n._bundle_receive, str(n_uid) + "bundle")
+		pub.subscribe(n.bundle_receive, str(n_uid) + "bundle")
 
 		node_list.append(n)
 
@@ -333,7 +333,8 @@ if __name__ == "__main__":
 		#  the Route Discovery whenever we drop below a certain number of good options
 
 	analytics = init_analytics()
-	cProfile.run('env.run(until=sim_duration)')
+	env.run(until=sim_duration)
+	# cProfile.run('env.run(until=sim_duration)')
 
 	print("*** REQUEST DATA ***")
 	print(f"{analytics.requests_submitted} Requests were submitted")

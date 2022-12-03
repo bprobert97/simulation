@@ -7,6 +7,7 @@ from typing import List
 from pubsub import pub
 
 from routing import Route, Contact, dijkstra_cgr
+from misc import id_generator
 
 
 @dataclass
@@ -22,11 +23,10 @@ class Request:
     destination: int = 999
     data_volume: int = 1
     time_created: int = None
+    __uid: str = field(init=False, default_factory=lambda: id_generator())
 
     def __post_init__(self):
         # Define a unique ID based on the time of request arrival and ID of the target
-        self.__uid = f"{self.time_created:.1f}_{self.target_id}"
-
         if not self.deadline_acquire:
             self.deadline_acquire = sys.maxsize
         if not self.deadline_deliver:
@@ -39,23 +39,35 @@ class Request:
 
 @dataclass
 class Task:
-    deadline_acquire: int
-    deadline_delivery: int
-    lifetime: int
-    target: int
-    priority: int
-    destination: int
-    size: int
-    assignee: int
-    scheduled_at: int | float
+    """
+    Args:
+        _status: Options include: "pending", "acquired", "redundant", "re-scheduled",
+            "delivered" or "failed"
+    """
+    deadline_acquire: int = sys.maxsize
+    deadline_delivery: int = sys.maxsize
+    lifetime: int = sys.maxsize
+    target: int = 0
+    priority: int = 0
+    destination: int = None
+    size: int = 1
+    assignee: int = None
+    scheduled_at: int | float = None
+    scheduled_by: int = None
     pickup_time: int | float = None  # Intended pick-up time
     delivery_time: int | float = None  # Intended delivery time
-    acq_path: List = field(default_factory=lambda: [])
-    del_path: List = field(default_factory=lambda: [])
-    request_ids: List = field(default_factory=lambda: [])
-    _acquired_at: int | float = None
-    _delivered_at: int | float = None
-    _status: str = "pending"
+    acq_path: List = field(default_factory=list)
+    del_path: List = field(default_factory=list)
+    request_ids: List = field(default_factory=list)
+
+    _acquired_at: int | float = field(init=False, default=None)
+    _delivered_at: int | float = field(init=False, default=None)
+    _status: str = field(init=False, default="pending")
+    __uid: str = field(init=False, default_factory=lambda: id_generator())
+
+    @property
+    def uid(self):
+        return self.__uid
 
     @property
     def status(self):
@@ -63,6 +75,15 @@ class Task:
 
     @status.setter
     def status(self, value):
+        """
+        Options are:
+        - "pending"
+        - "acquired"
+        - "delivered"
+        - "redundant" if this task needs rescheduling
+        - "rescheduled" if this task has now been rescheduled
+        - "failed"
+        """
         self._status = value
 
     @property
@@ -72,6 +93,28 @@ class Task:
     @acquired_at.setter
     def acquired_at(self, v):
         self._acquired_at = v
+
+    def __lt__(self, other):
+        """Order Tasks based on their status value
+
+        Task ordering is required when merging Task Tables and identifying which of two
+        tasks are the most "up-to-date", resulting in the other one being updated to match
+        """
+        if self.status == other.status:
+            return False
+        if self.status == "pending":
+            return True
+        if self.status == "acquired" and other.status != "pending":
+            return True
+        if self.status == "redundant" and \
+                (other.status != "pending" and other.status != "acquired"):
+            return True
+        return False
+
+    def __repr__(self):
+        return "Task: ID %s | Target %d | Assignee %s | Status %s | pickup time %d" % (
+            self.__uid, self.target, self.assignee, self.status, self.pickup_time
+        )
 
 
 @dataclass
@@ -99,6 +142,7 @@ class Scheduler:
             request: Request object that is being processed into a Task
             curr_time: Current time
             contact_plan: List of Contact objects on which the scheduling will occur
+            contact_plan_targets: List of Contact objects with target nodes
 
         Returns:
             task: a Task object (if possible), else None
@@ -124,6 +168,8 @@ class Scheduler:
             for hop in del_path.hops:
                 hop.volume -= request.data_volume
 
+            parent = self.parent.uid if self.parent else None
+
             task = Task(
                 deadline_acquire=request.deadline_acquire,
                 deadline_delivery=request.deadline_deliver,
@@ -134,6 +180,7 @@ class Scheduler:
                 size=request.data_volume,
                 assignee=del_path.hops[0].frm,
                 scheduled_at=curr_time,
+                scheduled_by=parent,
                 pickup_time=acq_path.bdt,
                 delivery_time=del_path.bdt,
                 acq_path=[x.uid for x in acq_path.hops],
@@ -248,22 +295,3 @@ class Scheduler:
         for contact in contact_plan:
             if int(contact.frm) == node_from and int(contact.to) == node_to:
                 contact.suppressed = True
-
-
-def get_matching_task_idx(self, task):
-    # TODO The use of this flag avoids an issue when the idx is 0, but it feels hacky
-    flag = False
-    for idx, t in enumerate(self.table):
-        # If it's the same task, but the status is different, this means that
-        # there's a mismatch that needs addressing.
-        if task.target == t.target and task.assignee == t.assignee and \
-                task.scheduled_at == t.scheduled_at:
-            flag = True
-            return flag, idx
-    return flag, None
-
-
-def update_task_status(self, task, new_status: str):
-    flag, idx = self.get_matching_task_idx(task)
-    if flag:
-        self.table[idx].status = new_status

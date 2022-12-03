@@ -4,7 +4,8 @@ __author__ = "Christopher Lowe"
 # from Lib import random
 from math import pi, sin, cos, tan, asin, atan2, sqrt, radians
 from numpy import dot
-from random import random, randint
+from random import random, randint, choice
+import string
 import numpy as np
 import time
 import pickle
@@ -14,25 +15,7 @@ R_E = 6371000.8
 MU_E = 3.986005e+14
 
 
-# *** GENERIC FUNCTIONS ***
-def assign_uid(uid_, low=1, high=9999999):
-    """
-    add a unique
-    :return:
-    """
-    len_uid = len(uid_)
-    while len_uid == len(uid_):
-        uid = randint(low, high)
-        uid_.add(uid)
-
-    return uid
-
-
-def add_to_queue(queue, item):
-    queue.put((-item.value, item.uid, item))
-    return queue
-
-
+# *** GENERIC DATA/MATHS FUNCTIONS ***
 def geometric_cdf(p, k):
     """
     Returns the likelihood that an event will have been successful after k trials,
@@ -68,22 +51,6 @@ def fibonacci_sphere(samples=1):
         points.append((x, y, z))
 
     return points
-
-
-# *** NODE / BUFFER FUNCTIONS ***
-def get_expire_time(buffers):
-    """
-    Get the (absolute) time at which the final packet in the buffer set will expire
-    :param buffers: list of buffer objects
-    :return:
-    """
-    expire = 0
-    for b in buffers:
-        for priority in b.packets:
-            for p in priority.queue:
-                expire = max(expire, p[2].expiry)
-
-    return expire
 
 
 # *** ORBITAL CONVERSIONS AND FUNCTIONS ***
@@ -580,3 +547,7 @@ def greg2jd(month, day, year):
 def generate_even_dist_on_earth(n):
     points_xyz = fibonacci_sphere(n)
     return [[x * R_E for x in y] for y in points_xyz]
+
+
+def id_generator(size=12, chars=string.ascii_uppercase + string.digits):
+    return ''.join(choice(chars) for _ in range(size))

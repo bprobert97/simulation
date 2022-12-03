@@ -20,6 +20,11 @@ class Node:
     """
     A Node object is a network element that can participate, in some way, to the data
     scheduling, generation, routing and/or delivery process.
+
+    Args:
+        request_duplication: A flag to indicate whether (True) or not (False) new
+            requests can be appended to existing tasks, should that task technically
+            already fulfil the request demand.
     """
     uid: int
     scheduler: Scheduler = None
@@ -27,12 +32,13 @@ class Node:
     outbound_queues: Dict = field(default_factory=dict)
     contact_plan: List = field(default_factory=list)
     contact_plan_targets: List = field(default_factory=list)
+    request_duplication: bool = False
 
     _bundle_assign_repeat: int = field(init=False, default=BUNDLE_ASSIGN_REPEAT_TIME)
     _outbound_repeat_interval: int = field(init=False, default=OUTBOUND_QUEUE_INTERVAL)
     route_table: Dict = field(init=False, default_factory=dict)
     request_queue: List = field(init=False, default_factory=list)
-    task_table: List = field(init=False, default_factory=list)
+    task_table: Dict = field(init=False, default_factory=dict)
     drop_list: List = field(init=False, default_factory=list)
     delivered_bundles: List = field(init=False, default_factory=list)
     _task_table_updated: bool = field(init=False, default=False)
@@ -67,7 +73,7 @@ class Node:
         while self.request_queue:
             request = self.request_queue.pop(0)
             # Check to see if any existing tasks exist that could service this request.
-            if self._is_request_serviced(request):
+            if self._is_request_serviced(request) and self.request_duplication:
                 pub.sendMessage("request_duplicated")
                 continue
 
@@ -80,12 +86,8 @@ class Node:
             # TODO If the task table has been updated, it should be shared with anyone
             #  with whom we are currently in a contact, since it may be of value to them
             if task:
-                self.task_table.append(task)
+                self.task_table[task.uid] = task
                 self._task_table_updated = True
-            else:
-                print(f"Request for {request.target_id}, submitted at "
-                      f"{request.time_created} cannot be processed")
-            # self._remove_contact_from_cp(request.target_id)
 
     def _is_request_serviced(self, request: Request) -> bool:
         """Returns True if the request is already handled by an existing Task.
@@ -102,7 +104,7 @@ class Node:
             A boolean indicating whether (True) or not (False) the request is already
             being handled by an existing task
         """
-        for task in self.task_table:
+        for task in self.task_table.values():
             if task.target == request.target_id and task.pickup_time >= \
                     request.time_created:
                 task.request_ids.append(request.uid)
@@ -134,7 +136,7 @@ class Node:
         """
         Procedure to follow if we're in contact w/ a Target node
         """
-        for task in self.task_table:
+        for task_id, task in self.task_table.items():
             if task.pickup_time == t_now and task.target == target:
                 bundle_lifetime = min(task.deadline_delivery, t_now+task.lifetime)
                 bundle = Bundle(
@@ -144,13 +146,14 @@ class Node:
                     size=task.size,
                     lifetime=bundle_lifetime,
                     created_at=t_now,
-                    priority=task.priority
+                    priority=task.priority,
+                    task_id=task.uid
                 )
                 self.buffer.append(bundle)
                 print(f"Bundle acquired on node {self.uid} at time {t_now} from target "
                       f"{target}")
                 pub.sendMessage("bundle_acquired", b=bundle)
-                return
+                task.status = "acquired"
 
     def _node_contact_procedure(self, env, contact):
         """
@@ -165,15 +168,17 @@ class Node:
             # send that before sharing any more bundles as it may be of value to the
             # neighbour
             if self._task_table_updated:
-                env.process(
-                    self._bundle_send(
+                env.process(self._task_table_send(
                         env,
-                        deepcopy(self.task_table),
                         contact.to,
                         contact.owlt,
-                        True
                     )
                 )
+                # FIXME This will "switch off" the task table update flag for everyone,
+                #  so, e.g. if we're in contact with two nodes and one of them sends
+                #  through an update such that this flag goes true, if we then
+                #  immediately respond to that node with the updated TT, we'll not get
+                #  the trigger to send to the other neighbour.
                 self._task_table_updated = False
                 yield env.timeout(0)
                 continue
@@ -224,9 +229,21 @@ class Node:
         """
         Carry out the handshake at the beginning of the contact,
         """
-        env.process(self._bundle_send(env, deepcopy(self.task_table), to, delay, True))
+        self._task_table_send(env, to, delay)
 
-    def _bundle_send(self, env, b, n, delay, is_task_table=False):
+    def _task_table_send(self, env, to, delay):
+        while True:
+            # print(f"Task Table sent from {self.uid} to {to} at time {env.now}")
+            yield env.timeout(delay)
+            # Wait until the whole message has arrived and then invoke the "receive"
+            # method on the receiving node
+            pub.sendMessage(
+                str(to) + "bundle",
+                t_now=env.now, bundle=deepcopy(self.task_table), is_task_table=True
+            )
+            break
+
+    def _bundle_send(self, env, b, n, delay):
         """
         Send bundle b to node n
 
@@ -235,19 +252,22 @@ class Node:
         send process is added to the event queue
         """
         while True:
-            if isinstance(b, Bundle):
-                print(f"bundle sent from {self.uid} to {n} at time {env.now}, "
-                      f"size {b.size}, total delay {delay:.1f}")
+            print(f"bundle sent from {self.uid} to {n} at time {env.now}, "
+                  f"size {b.size}, total delay {delay:.1f}")
             # Wait until the whole message has arrived and then invoke the "receive"
             # method on the receiving node
             yield env.timeout(delay)
             pub.sendMessage(
                 str(n) + "bundle",
-                env=env, bundle=b, is_task_table=is_task_table
+                t_now=env.now, bundle=b, is_task_table=False
             )
+
+            if n == b.dst:
+                self.task_table[b.task_id].status = "delivered"
+                self._task_table_updated = True
             break
 
-    def _bundle_receive(self, env, bundle, is_task_table=False):
+    def bundle_receive(self, t_now, bundle, is_task_table=False):
         """
         Receive bundle from neighbouring node. This also includes the receiving of Task
         Tables, as indicated by the flag in the args.
@@ -266,12 +286,14 @@ class Node:
         bundle.hop_count += 1
 
         if bundle.dst == self.uid:
-            print(f"bundle delivered to {self.uid} from {bundle.previous_node} at {env.now:.1f}")
+            print(f"bundle delivered to {self.uid} from {bundle.previous_node} at {t_now:.1f}")
             pub.sendMessage("bundle_delivered")
             self.delivered_bundles.append(bundle)
+            self.task_table[bundle.task_id].status = "delivered"
+            self._task_table_updated = True
             return
 
-        print(f"bundle received on {self.uid} from {bundle.previous_node} at {env.now:.1f}")
+        print(f"bundle received on {self.uid} from {bundle.previous_node} at {t_now:.1f}")
         pub.sendMessage("bundle_forwarded")
         self.buffer.append(bundle)
 
@@ -357,26 +379,21 @@ class Node:
                 self.drop_list.append(b)
                 pub.sendMessage("bundle_dropped")
 
-    def _merge_task_tables(self, tt):
+    def _merge_task_tables(self, tt_other):
         """
-        Combine the task table received from a neighbour, with one's own task table,
-        to ensure it is up-to-date
+        Compare two task tables and return one with the most up to dat information
         """
-        for task in tt:
-            present, idx = self._get_matching_task_idx(task)
-            # If the task exists in the task table, but the statuses don't match and
-            # the local task is "pending", then the other task must have been modified
-            # already, so should be updated to match
-            if present:
-                if task.status != self.task_table[idx].status and \
-                        self.task_table[idx].status == "pending":
-                    self.task_table[idx].status = task.status
-                    self._task_table_updated = True
-                else:
+        # Extract the IDs of the tasks present on both tables
+        shared_tasks = self.task_table.keys() & tt_other.keys()
+
+        # For each item in the task table we're comparing against, if the task is
+        # either not shared, or is "greater than", replace with the more up to date one
+        for task_id, task in tt_other.items():
+            if task_id in shared_tasks:
+                if not self.task_table[task_id] < task:
                     continue
-            else:
-                self.task_table.append(deepcopy(task))
-                self._task_table_updated = True
+            self.task_table[task_id] = deepcopy(task)
+            self._task_table_updated = True
 
     def _get_matching_task_idx(self, task):
         # TODO The use of this flag avoids an issue when the idx is 0, but it feels hacky

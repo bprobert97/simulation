@@ -73,6 +73,7 @@ class Bundle:
 	priority: int = 0  #
 	critical: bool = False
 	fragment: bool = True
+	task_id: int = None
 	previous_node: int = field(init=False, default=None)
 	hop_count: int = field(init=False, default=0)
 	_age: int = field(init=False, default=0)
