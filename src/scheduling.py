@@ -195,8 +195,8 @@ class Scheduler:
             # If no assignee has been identified, then it means there's no feasible way
             # the data can be acquired and delivered that fulfills the requirements.
             # TODO add in some exception that handles a lack of feasible acquisition
-            print(f"No task was created for request {request.uid} as either acquisition "
-                  f"or delivery wasn't feasible")
+            # print(f"No task was created for request {request.uid} as either acquisition "
+            #       f"or delivery wasn't feasible")
             pub.sendMessage("request_fail")
             return
 

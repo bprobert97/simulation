@@ -150,7 +150,8 @@ class Node:
                     task_id=task.uid
                 )
                 self.buffer.append(bundle)
-                print(f"Bundle acquired on node {self.uid} at time {t_now} from target "
+                print(f"^^^ Bundle acquired on node {self.uid} at time {t_now} from "
+                      f"target "
                       f"{target}")
                 pub.sendMessage("bundle_acquired", b=bundle)
                 task.status = "acquired"
@@ -229,7 +230,7 @@ class Node:
         """
         Carry out the handshake at the beginning of the contact,
         """
-        self._task_table_send(env, to, delay)
+        env.process(self._task_table_send(env, to, delay))
 
     def _task_table_send(self, env, to, delay):
         while True:
@@ -252,7 +253,7 @@ class Node:
         send process is added to the event queue
         """
         while True:
-            print(f"bundle sent from {self.uid} to {n} at time {env.now}, "
+            print(f">>> Bundle sent from {self.uid} to {n} at time {env.now}, "
                   f"size {b.size}, total delay {delay:.1f}")
             # Wait until the whole message has arrived and then invoke the "receive"
             # method on the receiving node
@@ -286,14 +287,16 @@ class Node:
         bundle.hop_count += 1
 
         if bundle.dst == self.uid:
-            print(f"bundle delivered to {self.uid} from {bundle.previous_node} at {t_now:.1f}")
+            print(f"*** Bundle delivered to {self.uid} from {bundle.previous_node} at"
+                  f" {t_now:.1f}")
             pub.sendMessage("bundle_delivered")
             self.delivered_bundles.append(bundle)
             self.task_table[bundle.task_id].status = "delivered"
             self._task_table_updated = True
             return
 
-        print(f"bundle received on {self.uid} from {bundle.previous_node} at {t_now:.1f}")
+        print(f"<<< Bundle received on {self.uid} from {bundle.previous_node} at"
+              f" {t_now:.1f}")
         pub.sendMessage("bundle_forwarded")
         self.buffer.append(bundle)
 
