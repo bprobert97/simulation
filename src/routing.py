@@ -353,6 +353,9 @@ def contact_review(contact_plan, current, dest, final_contact, bdt,
             continue
         if contact.end <= current.arrival_time:
             continue
+        # FIXME This only considers the total volume on the contact, but if we arrive
+        #  part way through (e.g. due to overlap), we might over-estimate how much
+        #  volume there really is
         if contact.volume < size:
             continue
         # TODO remove this as should never be the case I don't think

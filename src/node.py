@@ -7,7 +7,7 @@ from copy import deepcopy
 
 from pubsub import pub
 
-from scheduling import Scheduler, Request
+from scheduling import Scheduler, Request, Task
 from bundles import Buffer, Bundle
 
 
@@ -25,6 +25,7 @@ class Node:
         request_duplication: A flag to indicate whether (True) or not (False) new
             requests can be appended to existing tasks, should that task technically
             already fulfil the request demand.
+        msr: Flag indicating use of Moderate Source Routing, if possible
     """
     uid: int
     scheduler: Scheduler = None
@@ -33,6 +34,7 @@ class Node:
     contact_plan: List = field(default_factory=list)
     contact_plan_targets: List = field(default_factory=list)
     request_duplication: bool = False
+    # msr: bool = True
 
     _bundle_assign_repeat: int = field(init=False, default=BUNDLE_ASSIGN_REPEAT_TIME)
     _outbound_repeat_interval: int = field(init=False, default=OUTBOUND_QUEUE_INTERVAL)
@@ -72,10 +74,19 @@ class Node:
         """
         while self.request_queue:
             request = self.request_queue.pop(0)
+
             # Check to see if any existing tasks exist that could service this request.
-            if self._is_request_serviced(request) and self.request_duplication:
-                pub.sendMessage("request_duplicated")
-                continue
+            if self.request_duplication:
+                task_ = self._task_already_servicing_request(request)
+                if task_:
+                    task_.request_ids.append(request.uid)
+                    # TODO Note that this won't necessarily be shared throughout the
+                    #  network, since it's not really an "update to the task. Tbh,
+                    #  it won't matter that much, since the remote node doesn't need to
+                    #  know details about the request(s) its servicing, but could be
+                    #  good to ensure it's shared
+                    pub.sendMessage("request_duplicated")
+                    continue
 
             task = self.scheduler.schedule_task(request, curr_time, self.contact_plan,
                                                 self.contact_plan_targets)
@@ -83,13 +94,11 @@ class Node:
             # If a task has been created (i.e. there is a feasible acquisition and
             # delivery opportunity), add the task to the table. Else, that request
             # cannot be fulfilled so log something to that effect
-            # TODO If the task table has been updated, it should be shared with anyone
-            #  with whom we are currently in a contact, since it may be of value to them
             if task:
                 self.task_table[task.uid] = task
                 self._task_table_updated = True
 
-    def _is_request_serviced(self, request: Request) -> bool:
+    def _task_already_servicing_request(self, request: Request) -> Task | None:
         """Returns True if the request is already handled by an existing Task.
 
         Check to see if any of the existing tasks would satisfy the request. I.e. the
@@ -107,9 +116,7 @@ class Node:
         for task in self.task_table.values():
             if task.target == request.target_id and task.pickup_time >= \
                     request.time_created:
-                task.request_ids.append(request.uid)
-                return True
-        return False
+                return task
 
     # *** CONTACT HANDLING ***
     def contact_controller(self, env):
@@ -253,8 +260,8 @@ class Node:
         send process is added to the event queue
         """
         while True:
-            print(f">>> Bundle sent from {self.uid} to {n} at time {env.now}, "
-                  f"size {b.size}, total delay {delay:.1f}")
+            # print(f">>> Bundle sent from {self.uid} to {n} at time {env.now}, "
+            #       f"size {b.size}, total delay {delay:.1f}")
             # Wait until the whole message has arrived and then invoke the "receive"
             # method on the receiving node
             yield env.timeout(delay)
@@ -302,11 +309,13 @@ class Node:
 
     # *** BUNDLE & TASK TABLE HANDLING ***
     def bundle_assignment_controller(self, env):
+        """Repeating process that kicks off the bundle assignment procedure.
+        """
         while True:
-            self._bundle_assignment(env)
+            self._bundle_assignment(env.now)
             yield env.timeout(self._bundle_assign_repeat)
 
-    def _bundle_assignment(self, env):
+    def _bundle_assignment(self, t_now):
         """
         For each bundle in the virtual buffer, identify the route over which it should
         be sent and reduce the resources along each Contact in that route accordingly.
@@ -358,7 +367,7 @@ class Node:
                 #  ends after the current time, however in reality there's more to it
                 #  than this
                 for hop in route.hops:
-                    if hop.end <= env.now:
+                    if hop.end <= t_now:
                         continue
 
                 # If this route cannot accommodate the bundle, skip
@@ -390,22 +399,10 @@ class Node:
         shared_tasks = self.task_table.keys() & tt_other.keys()
 
         # For each item in the task table we're comparing against, if the task is
-        # either not shared, or is "greater than", replace with the more up to date one
+        # either not shared, or is "greater than", replace the one in our table
         for task_id, task in tt_other.items():
             if task_id in shared_tasks:
                 if not self.task_table[task_id] < task:
                     continue
             self.task_table[task_id] = deepcopy(task)
             self._task_table_updated = True
-
-    def _get_matching_task_idx(self, task):
-        # TODO The use of this flag avoids an issue when the idx is 0, but it feels hacky
-        flag = False
-        for idx, t in enumerate(self.task_table):
-            # If it's the same task, but the status is different, this means that
-            # there's a mismatch that needs addressing.
-            if task.target == t.target and task.assignee == t.assignee and \
-                    task.scheduled_at == t.scheduled_at:
-                flag = True
-                return flag, idx
-        return flag, None

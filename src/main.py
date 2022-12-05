@@ -94,11 +94,11 @@ def init_space_nodes(nodes, targets, cp, cpwt):
 	node_list = []
 	for n_uid, n in nodes.items():
 		n = Node(
-				n_uid,
-				buffer=Buffer(NODE_BUFFER_CAPACITY),
-				outbound_queues={x: [] for x in node_ids},
-				contact_plan=deepcopy(cp),
-				contact_plan_targets=deepcopy(cpwt)
+			n_uid,
+			buffer=Buffer(NODE_BUFFER_CAPACITY),
+			outbound_queues={x: [] for x in node_ids},
+			contact_plan=deepcopy(cp),
+			contact_plan_targets=deepcopy(cpwt)
 		)
 		n._targets = targets
 		pub.subscribe(n.bundle_receive, str(n_uid) + "bundle")
