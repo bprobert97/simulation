@@ -13,6 +13,7 @@ import pickle
 
 R_E = 6371000.8
 MU_E = 3.986005e+14
+USED_IDS = set()
 
 
 # *** GENERIC DATA/MATHS FUNCTIONS ***
@@ -550,4 +551,8 @@ def generate_even_dist_on_earth(n):
 
 
 def id_generator(size=12, chars=string.ascii_uppercase + string.digits):
-    return ''.join(choice(chars) for _ in range(size))
+    id = ''.join(choice(chars) for _ in range(size))
+    if id in USED_IDS:
+        id_generator(size, chars)
+    USED_IDS.add(id)
+    return id

@@ -9,6 +9,7 @@ from pubsub import pub
 
 from scheduling import Scheduler, Request, Task
 from bundles import Buffer, Bundle
+from routing import candidate_routes
 
 
 OUTBOUND_QUEUE_INTERVAL = 1
@@ -34,7 +35,7 @@ class Node:
     contact_plan: List = field(default_factory=list)
     contact_plan_targets: List = field(default_factory=list)
     request_duplication: bool = False
-    # msr: bool = True
+    msr: bool = True
 
     _bundle_assign_repeat: int = field(init=False, default=BUNDLE_ASSIGN_REPEAT_TIME)
     _outbound_repeat_interval: int = field(init=False, default=OUTBOUND_QUEUE_INTERVAL)
@@ -54,6 +55,12 @@ class Node:
             [c for c in self.contact_plan_targets if c.frm == self.uid]
         )
         self._contact_plan_self.sort()
+
+        # Create a dict versions of the contact plan to ease resource modification.
+        # This allows us to update the resources directly of the contacts to which a
+        # bundle is assigned, rather than having to search through the whole list for a
+        # matching ID
+        self.contact_plan_dict = {c.uid: c for c in self.contact_plan}
 
     # *** REQUEST HANDLING (I.E. SCHEDULING) ***
     def request_received(self, request, t_now):
@@ -88,8 +95,12 @@ class Node:
                     pub.sendMessage("request_duplicated")
                     continue
 
-            task = self.scheduler.schedule_task(request, curr_time, self.contact_plan,
-                                                self.contact_plan_targets)
+            task = self.scheduler.schedule_task(
+                request,
+                curr_time,
+                self.contact_plan,
+                self.contact_plan_targets
+            )
 
             # If a task has been created (i.e. there is a feasible acquisition and
             # delivery opportunity), add the task to the table. Else, that request
@@ -197,7 +208,7 @@ class Node:
                 yield env.timeout(self._outbound_repeat_interval)
                 continue
 
-            # Extract a bundle from the outbound queue and send it over the contact
+            # Extract a bundle from the outbound queue and send it over the contact.
             bundle = self.outbound_queues[contact.to].pop(0)
             send_time = bundle.size / contact.rate
             if contact.end - env.now >= send_time:
@@ -307,7 +318,7 @@ class Node:
         pub.sendMessage("bundle_forwarded")
         self.buffer.append(bundle)
 
-    # *** BUNDLE & TASK TABLE HANDLING ***
+    # *** ROUTE SELECTION, BUNDLE ENQUEUEING AND RESOURCE CONSIDERATION ***
     def bundle_assignment_controller(self, env):
         """Repeating process that kicks off the bundle assignment procedure.
         """
@@ -316,8 +327,9 @@ class Node:
             yield env.timeout(self._bundle_assign_repeat)
 
     def _bundle_assignment(self, t_now):
-        """
-        For each bundle in the virtual buffer, identify the route over which it should
+        """Select routes, and enqueue (for transmission) bundles residing in the buffer.
+
+        For each bundle in the buffer, identify the route over which it should
         be sent and reduce the resources along each Contact in that route accordingly.
         Stop once all bundles have been assigned a route. Bundles for which a
         feasible route (i.e. one that ensures delivery before the bundle's expiry) is
@@ -377,19 +389,41 @@ class Node:
                 assigned = True
                 # b.base_route = [int(x.uid) for x in route.hops]
 
-                # Add the bundle-route pair to the send_list for the bundle's "next node"
+                # Add the bundle to the outbound queue for the bundle's "next node"
                 self.outbound_queues[route.hops[0].to].append(b)
 
                 # Update the resources on the selected route
-                # self.resource_consumption(
-                #     b.size,
-                #     route
-                # )
+                for hop in route.hops:
+                    self._contact_resource_update(hop.uid, b.size)
                 break
 
             if not assigned:
                 self.drop_list.append(b)
                 pub.sendMessage("bundle_dropped")
+
+    def return_outbound_queue_to_buffer(self, to):
+        """Return the contents of the outbound queue to the buffer.
+
+        This process will also result in resources that were originally assigned for
+        the movement of this bundle, to be replenished so that they are not double-counted
+        """
+        while self.outbound_queues[to]:
+            bundle = self.outbound_queues[to].pop()
+            for hop in bundle.route:
+                # TODO maybe better to use MAV here, since we know the priority
+                self._contact_resource_update(hop, -bundle.size)
+
+    def _contact_resource_update(self, contact: int, data_size: int | float) -> None:
+        """Consume or replenish resources on a Contact.
+
+        Contact volume is reduced (if data is being sent) or increased (if data is no
+        longer being sent) according to traffic flow
+
+        Args:
+            contact: ID of the contact on which resources should be updated
+            data_size: Volume of the data being transferred over the contact
+        """
+        self.contact_plan_dict[contact].volume -= data_size
 
     def _merge_task_tables(self, tt_other):
         """

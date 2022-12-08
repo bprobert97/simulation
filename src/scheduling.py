@@ -6,7 +6,7 @@ from typing import List
 
 from pubsub import pub
 
-from routing import Route, Contact, dijkstra_cgr
+from routing import Route, Contact, cgr_dijkstra
 from misc import id_generator
 
 
@@ -237,11 +237,8 @@ class Scheduler:
 
         while True:
             # Find the lowest cost acquisition path using Dijkstra
-            # TODO This is using the Dijkstra function from the routing.py file. There
-            #  must be a cleaner way to use this, e.g. having a "Router" object that is
-            #  an attribute on both this scheduler and the node objects??
-            path_acq = dijkstra_cgr(contact_plan, root, request.target_id,
-                                    request.deadline_acquire)
+            path_acq = cgr_dijkstra(
+                root, request.target_id, contact_plan, request.deadline_acquire)
 
             if not path_acq or path_acq.bdt >= earliest_delivery_time:
                 break
@@ -265,10 +262,10 @@ class Scheduler:
             root_delivery.arrival_time = path_acq.bdt
 
             # Identify best route to the destination from our current acquiring node
-            path_del = dijkstra_cgr(
-                contact_plan,
+            path_del = cgr_dijkstra(
                 root_delivery,
                 request.destination,
+                contact_plan,
                 request.deadline_deliver,
                 request.data_volume
             )

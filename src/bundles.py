@@ -2,6 +2,7 @@
 
 import sys
 from dataclasses import dataclass, field
+from typing import List
 
 
 @dataclass
@@ -76,6 +77,7 @@ class Bundle:
 	task_id: int = None
 	previous_node: int = field(init=False, default=None)
 	hop_count: int = field(init=False, default=0)
+	_route: List = field(init=False, default_factory=list)
 	_age: int = field(init=False, default=0)
 	_is_fragment: bool = field(init=False, default=False)
 
@@ -85,6 +87,18 @@ class Bundle:
 	@property
 	def age(self):
 		return self._age
+
+	@property
+	def route(self) -> list:
+		"""The path along which the bundle has been assigned.
+
+		Each item in the list is a Contact ID
+		"""
+		return self._route
+
+	@route.setter
+	def route(self, hops: list) -> None:
+		self._route = hops
 
 	def update_age(self, t_now):
 		self._age = t_now - self.created_at

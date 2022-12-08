@@ -15,28 +15,26 @@ class Contact:
     rate: int | float = 1
     confidence: float = 1.0
     owlt: float = 0.0
+    # route search working area
+    arrival_time: int | float = sys.maxsize
+    visited: bool = False
+    visited_nodes: List = field(default_factory=list)
+    predecessor: int = 0
+    # route management working area
+    suppressed: bool = False
+    suppressed_next_hop: List = field(default_factory=list)
+    # forwarding working area
+    first_byte_tx_time: int | float = None
+    last_byte_tx_time: int | float = None
+    last_byte_arr_time: int | float = None
+    effective_volume_limit: int | float = None
 
     def __post_init__(self):
-        # route search working area
-        self.arrival_time = sys.maxsize
-        self.visited = False
-        self.visited_nodes = []
-        self.predecessor = 0
-        # route management working area
-        self.suppressed = False
-        self.suppressed_next_hop = []
-        # forwarding working area
-        self.first_byte_tx_time = None
-        self.last_byte_tx_time = None
-        self.last_byte_arr_time = None
-        self.effective_volume_limit = None
-
         # TODO is this really necessary? We're using it so that Tasks know the contacts
         #  used in the acquisition and delivery paths, rather than storing pointers to
         #  actual contacts. This is because a Task is really just an item in a table
         #  that gets passed around, so it doesn't really make sense to point to a Contact
         self.__uid = f"{self.frm}_{self.to}_{self.start}"
-
         self.volume = self.rate * (self.end - self.start)
         self.mav = [self.volume, self.volume, self.volume]
 
@@ -191,7 +189,7 @@ def cgr_yens(src, dest, t_now, num_routes, contact_plan):
         contact.clear_management_area()
 
     # Find the lowest cost path using Dijkstra
-    route = dijkstra_cgr(contact_plan, root, dest)
+    route = cgr_dijkstra(root, dest, contact_plan)
     if route is None:
         return route
 
@@ -240,7 +238,7 @@ def cgr_yens(src, dest, t_now, num_routes, contact_plan):
                 spur_contact.visited_nodes.append(hop.to)
 
             # try to find a spur_path with dijkstra
-            spur_path = dijkstra_cgr(contact_plan, spur_contact, dest)
+            spur_path = cgr_dijkstra(spur_contact, dest, contact_plan)
 
             # if found store new route in potential_routes
             if spur_path:
@@ -269,7 +267,7 @@ def cgr_yens(src, dest, t_now, num_routes, contact_plan):
     return routes
 
 
-def dijkstra_cgr(contact_plan, root, dest, deadline=sys.maxsize, size=0):
+def cgr_dijkstra(root_contact, destination, contact_plan, deadline=sys.maxsize, size=0):
     """
     Finds the lowest cost Route from the current node to a destination node
     :return:
@@ -278,34 +276,109 @@ def dijkstra_cgr(contact_plan, root, dest, deadline=sys.maxsize, size=0):
     #  long time horizon with many contacts, this could become unnecessarily large.
     # Set of contacts that have been visited during the contact plan search
     # unvisited = [c.uid for c in self.contacts]
-    [c.clear_dijkstra_area() for c in contact_plan if c is not root]
+    [c.clear_dijkstra_area() for c in contact_plan if c is not root_contact]
 
-    current = root
+    contact_plan_hash = {}
+    for contact in contact_plan:
+        if contact.frm not in contact_plan_hash:
+            contact_plan_hash[contact.frm] = []
+        if contact.to not in contact_plan_hash:
+            contact_plan_hash[contact.to] = []
+        contact_plan_hash[contact.frm].append(contact)
 
     # Pre-set the variables used to track the "optimal" route and set the arrival
     # time along the "best" route (the "best delivery time", bdt) to be large
     route = None  # optimal route so far
-    final = None  # The "final" contact along the current route
-    bdt = sys.maxsize  # "best delivery time"
-    # lcr = sys.maxsize  # "lowest cost route"
+    final_contact = None  # The "final" contact along the current route
+    earliest_fin_arr_t = sys.maxsize  # "best delivery time"
 
+    current = root_contact
     # TODO Identify a situation when this would ever NOT be the case, seems redundant
-    if current.to not in current.visited_nodes:
-        current.visited_nodes.append(current.to)
+    if root_contact.to not in root_contact.visited_nodes:
+        root_contact.visited_nodes.append(root_contact.to)
 
     while True:
-        final, bdt = contact_review(contact_plan, current, dest, final, bdt, deadline, size)
-        next_contact = contact_selection(contact_plan, bdt, deadline)
+        for contact in contact_plan_hash[current.to]:
+            transfer_time = contact.rate * size
+            if contact in current.suppressed_next_hop:
+                continue
+            if contact.suppressed:
+                continue
+            if contact.visited:
+                continue
+            if contact.to in current.visited_nodes:
+                continue
+            if contact.end <= current.arrival_time + transfer_time:
+                continue
+
+            # While there may be sufficient time available to send the bundle,
+            # there may not actually be a sufficient amount of volume remaining.
+            # TODO this needs considered in terms of priority, since there may be
+            #  volume for high priority bundles, but not low-priority ones.
+            if contact.volume < size:
+                continue
+
+            # TODO remove this as should never be the case I don't think
+            if current.frm == contact.to and current.to == contact.frm:
+                continue
+
+            # Calculate arrival time (cost) - I.e. the time at which the first byte of
+            # data can arrive at the receiving node
+            # If the next contact begins before we could have arrived at the
+            # current contact, set the arrival time to be the arrival at the
+            # current plus the time to traverse the contact
+            # Calculate arrival time (cost)
+            if contact.start < current.arrival_time:
+                arrvl_time = current.arrival_time + contact.owlt
+            else:
+                arrvl_time = contact.start + contact.owlt
+
+            # Update cost if better and update other parameters in
+            # next contact so that we assume we're coming from the current
+            # NOTE: CGR has this as less than or equal to, but why update if "equal
+            # to"? In fact, in "Routing in the Space Internet: A contact graph routing
+            # tutorial", it's "<" (Algorithm 2, line 17)
+            if arrvl_time < contact.arrival_time:
+                contact.arrival_time = arrvl_time
+                contact.predecessor = current
+                contact.visited_nodes = current.visited_nodes[:]
+                contact.visited_nodes.append(contact.to)
+
+                # Mark if destination reached
+                if contact.to == destination and contact.arrival_time < earliest_fin_arr_t:
+                    earliest_fin_arr_t = contact.arrival_time
+                    final_contact = contact
+
+        # This completes our assessment of the current contact
+        current.visited = True
+
+        # Determine best next contact among all in contact plan
+        earliest_arr_t = sys.maxsize
+        next_contact = None
+
+        for contact in contact_plan:
+
+            # Ignore visited or suppressed
+            if contact.visited or contact.suppressed:
+                continue
+
+            # If we know there is another, better contact, continue
+            if contact.arrival_time > earliest_fin_arr_t:
+                continue
+
+            if contact.arrival_time < earliest_arr_t:
+                earliest_arr_t = contact.arrival_time
+                next_contact = contact
 
         if not next_contact:
             break
         current = next_contact
 
     # Done contact graph exploration, check and store new route
-    if final is not None:
+    if final_contact is not None:
         hops = []
-        contact = final
-        while contact != root:
+        contact = final_contact
+        while contact != root_contact:
             hops.insert(0, contact)
             contact = contact.predecessor
 
@@ -421,3 +494,120 @@ def contact_selection(contact_plan, bdt, deadline):
             next_contact = contact
 
     return next_contact
+
+
+def candidate_routes(curr_time, curr_node, contact_plan, bundle, routes,
+                     excluded_nodes, debug=False):
+
+    return_to_sender = False
+    candidate_routes = []
+
+    for route in routes:
+
+        # 3.2.5.2 a) preparation: backward propagation
+        if not return_to_sender:
+            if route.next_node is bundle.sender:
+                excluded_nodes.append(route.next_node)
+                if debug:
+                    print("preparation: next node is sender", route.next_node)
+                continue
+
+        # 3.2.6.9 a)
+        if route.best_delivery_time > bundle.deadline:
+            print("not candidate: best delivery time (bdt) is later than deadline")
+            continue
+
+        # 3.2.6.9 b)
+        if route.next_node in excluded_nodes:
+            if debug:
+                print("not candidate: next node in excluded nodes list")
+            continue
+
+        # 3.2.6.9 c)
+        for contact in route.hops:
+            if contact.to is curr_node:
+                if debug:
+                    print("not candidate: contact in route tx to current node")
+                continue
+
+        # 3.2.6.9 d) calculate eto and if it is later than 1st contact end time, ignore
+        adjusted_start_time = max(curr_time, route.hops[0].start)
+        applicable_backlog_p = 0  # todo: this the current route.next_node queue status now for p or higher
+        applicable_backlog_relief = 0
+        for contact in contact_plan:
+            if contact.frm == route.hops[0].frm and contact.to == route.hops[0].to:
+                if contact.end > curr_time and contact.start < route.hops[0].start:
+                    # How much of the contact is remaining?
+                    applicable_duration = contact.end - max(curr_time, contact.start)
+                    # How much volume is there remaining?
+                    applicable_prior_contact_volume = applicable_duration * contact.rate
+                    # What is the total backlog "relief"
+                    applicable_backlog_relief += applicable_prior_contact_volume
+        residual_backlog = max(0, applicable_backlog_p - applicable_backlog_relief)
+        backlog_lien = residual_backlog / route.hops[0].rate
+        early_tx_opportunity = adjusted_start_time + backlog_lien
+        if early_tx_opportunity > route.hops[0].end:
+            if debug:
+                print(
+                    "not candidate: earlier transmission opportunity is later than end of 1st contact")
+            continue
+
+        # 3.2.6.9 e) use eto to compute projected arrival time
+        prev_last_byte_arr_time = 0
+        for contact in route.hops:
+            if contact == route.hops[0]:
+                contact.first_byte_tx_time = early_tx_opportunity
+            else:
+                contact.first_byte_tx_time = max(contact.start, prev_last_byte_arr_time)
+            bundle_tx_time = bundle.size / contact.rate
+            contact.last_byte_tx_time = contact.first_byte_tx_time + bundle_tx_time
+            contact.last_byte_arr_time = contact.last_byte_tx_time + contact.owlt
+            prev_last_byte_arr_time = contact.last_byte_arr_time
+        proj_arr_time = prev_last_byte_arr_time
+        if proj_arr_time > bundle.deadline:
+            if debug:
+                print("not candidate: projected arrival time is later than deadline")
+            continue
+
+        # 3.2.6.9 f) if route depleted for bundle priority P, ignore
+        reserved_volume_p = 0  # todo: sum of al bundle.evc with p or higher that were forwarded via this route
+        min_effective_volume_limit = sys.maxsize
+        for contact in route.hops:
+            if reserved_volume_p >= contact.volume:
+                if debug:
+                    print("not candidate: route depleted for bundle priority")
+                continue
+
+            effective_start_time = contact.first_byte_tx_time
+            min_succ_stop_time = sys.maxsize
+            index = route.hops.index(contact)
+            for successor in route.hops[index:]:
+                if successor.end < min_succ_stop_time:
+                    min_succ_stop_time = successor.end
+            effective_stop_time = min(contact.end, min_succ_stop_time)
+            effective_duration = effective_stop_time - effective_start_time
+            contact.effective_volume_limit = min(effective_duration * contact.rate,
+                                                 contact.mav[bundle.priority])
+            if contact.effective_volume_limit < min_effective_volume_limit:
+                min_effective_volume_limit = contact.effective_volume_limit
+        route_volume_limit = min_effective_volume_limit
+        if route_volume_limit <= 0:
+            if debug:
+                print("not candidate: route is depleted for the bundle priority")
+            continue
+
+        # 3.2.6.9 g) if frag is False and route rvl(P) < bundle.evc, ignore
+        if not bundle.fragment:
+            if route_volume_limit < bundle.evc:
+                if debug:
+                    print(
+                        "not candidate: route volume limit is less than bundle evc and no fragment allowed")
+                continue
+
+        if debug:
+            print("new candidate:", route)
+        candidate_routes.append(route)
+
+    candidate_routes.sort()
+
+    return candidate_routes
