@@ -32,6 +32,7 @@ class Buffer:
 		"""
 		if self.capacity_remaining >= bundle.size:
 			self.bundles.append(bundle)
+			self.bundles.sort()
 			return True
 		return False
 
@@ -110,3 +111,28 @@ class Bundle:
 			self.target_id,
 			self.dst
 		)
+
+	def __lt__(self, other):
+		"""Over-ride method for sorting Bundle objects.
+		"""
+		# Critical bundles rank highest
+		if self.critical and not other.critical:
+			return True
+
+		if self.critical and other.critical:
+			if self.age > other.age:
+				return True
+
+		# Rank first by priority (highest first), then by age (oldest first)
+		if self.priority > other.priority:
+			return True
+
+		if self.priority == other.priority:
+			if self.age > other.age:
+				return True
+
+			if self.age == other.age:
+				if self.hop_count > other.hop_count:
+					return True
+
+		return False

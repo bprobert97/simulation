@@ -36,7 +36,9 @@ class Contact:
         #  that gets passed around, so it doesn't really make sense to point to a Contact
         self.__uid = f"{self.frm}_{self.to}_{self.start}"
         self.volume = self.rate * (self.end - self.start)
-        self.mav = [self.volume, self.volume, self.volume]
+
+        # TODO Add this in for priority-specific resource consideration
+        # self.mav = [self.volume, self.volume, self.volume]
 
     @property
     def uid(self):
@@ -81,9 +83,9 @@ class Contact:
         if self.volume <= 0:
             volume = 0
         else:
-            volume = 100 * min(self.mav) / self.volume
+            volume = self.volume  # 100 * min(self.mav) / self.volume
 
-        return "%s->%s (%s-%s, d%s) [mav%d%%]" % (self.frm, self.to, self.start, end,
+        return "%s->%s (%s-%s, owlt:%s) [vol:%d]" % (self.frm, self.to, self.start, end,
                                                 self.owlt, volume)
 
 
@@ -118,7 +120,6 @@ class Route:
 
     @property
     def volume(self):
-        # return min([x.volume for x in self.hops])
         prev_last_byte_arr_time = 0
         min_effective_volume_limit = sys.maxsize
         for c in self.hops:
@@ -570,7 +571,8 @@ def candidate_routes(curr_time, curr_node, contact_plan, bundle, routes,
 
         # 3.2.6.9 a)
         if route.best_delivery_time > bundle.deadline:
-            print("not candidate: best delivery time (bdt) is later than deadline")
+            if debug:
+                print("not candidate: best delivery time (bdt) is later than deadline")
             continue
 
         # 3.2.6.9 b)
@@ -661,7 +663,7 @@ def candidate_routes(curr_time, curr_node, contact_plan, bundle, routes,
                 min_succ_stop_time = min(successor.end, min_succ_stop_time)
             effective_stop_time = min(contact.end, min_succ_stop_time)
             effective_duration = effective_stop_time - effective_start_time
-            # FIXME Update the below to use MAV
+            # TODO Update the below to use MAV
             # contact.effective_volume_limit = min(effective_duration * contact.rate,
             #                                      contact.mav[bundle.priority])
             contact.effective_volume_limit = min(effective_duration * contact.rate,

@@ -9,7 +9,7 @@ from pubsub import pub
 
 from scheduling import Scheduler, Request, Task
 from bundles import Buffer, Bundle
-from routing import candidate_routes
+from routing import candidate_routes, Contact
 
 
 OUTBOUND_QUEUE_INTERVAL = 1
@@ -361,7 +361,7 @@ class Node:
             #             )
             #             break
             #     continue
-            for route in self.route_table[b.dst]:
+            for route in candidates:
                 # If any of the nodes along this route are in the "excluded nodes"
                 # list, then we shouldn't assign it along this route
                 # TODO in CGR, this simply looks at the "next node" rather than the
@@ -388,6 +388,17 @@ class Node:
                         continue
 
                 # If this route cannot accommodate the bundle, skip
+                # FIXME This (volume) is currently not automatically updating with the
+                #  assignment of bundles. This makes sense, since it's currently just
+                #  based on the nominal start/end times and rates of each contact. This
+                #  is where we need to consider both the volume that has been assigned
+                #  to each contact AND the timings and rates. E.g. if the middle
+                #  contact is the bottleneck in terms of volume, and has already had
+                #  90% of its capacity consumed by a different route, this needs to be
+                #  reflected in the available volume on this route. This is where the
+                #  MAV comes in, as something separate from the nominal volume
+                #  parameter, which is simply used to identify whether a possible route
+                #  exists during the route discovery.
                 if route.volume < b.size:
                     continue
 
@@ -399,7 +410,7 @@ class Node:
 
                 # Update the resources on the selected route
                 for hop in route.hops:
-                    self._contact_resource_update(hop.uid, b.size)
+                    self._contact_resource_update(hop, b.size)
                 break
 
             if not assigned:
@@ -416,9 +427,10 @@ class Node:
             bundle = self.outbound_queues[to].pop()
             for hop in bundle.route:
                 # TODO maybe better to use MAV here, since we know the priority
-                self._contact_resource_update(hop, -bundle.size)
+                self._contact_resource_update(self.contact_plan_dict[hop], -bundle.size)
 
-    def _contact_resource_update(self, contact: int, data_size: int | float) -> None:
+    @staticmethod
+    def _contact_resource_update(contact: Contact, data_size: int | float) -> None:
         """Consume or replenish resources on a Contact.
 
         Contact volume is reduced (if data is being sent) or increased (if data is no
@@ -428,7 +440,7 @@ class Node:
             contact: ID of the contact on which resources should be updated
             data_size: Volume of the data being transferred over the contact
         """
-        self.contact_plan_dict[contact].volume -= data_size
+        contact.volume -= data_size
 
     def _merge_task_tables(self, tt_other):
         """
