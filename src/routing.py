@@ -118,20 +118,66 @@ class Route:
 
     @property
     def volume(self):
-        return min([x.volume for x in self.hops])
+        # return min([x.volume for x in self.hops])
+        prev_last_byte_arr_time = 0
+        min_effective_volume_limit = sys.maxsize
+        for c in self.hops:
+            if c == self.hops[0]:
+                c.first_byte_tx_time = c.start
+            else:
+                c.first_byte_tx_time = max(c.start, prev_last_byte_arr_time)
+            bundle_tx_time = 0  # immediate transmission
+            c.last_byte_tx_time = c.first_byte_tx_time + bundle_tx_time
+            c.last_byte_arr_time = c.last_byte_tx_time + c.owlt
+            prev_last_byte_arr_time = c.last_byte_arr_time
+
+            effective_start_time = c.first_byte_tx_time
+            min_succ_stop_time = sys.maxsize
+            index = self.hops.index(c)
+            for successor in self.hops[index:]:
+                if successor.end < min_succ_stop_time:
+                    min_succ_stop_time = successor.end
+            effective_stop_time = min(c.end, min_succ_stop_time)
+            effective_duration = effective_stop_time - effective_start_time
+            c.effective_volume_limit = min(effective_duration * c.rate, c.volume)
+            if c.effective_volume_limit < min_effective_volume_limit:
+                min_effective_volume_limit = c.effective_volume_limit
+        return min_effective_volume_limit
 
     @property
     def best_delivery_time(self):
         # Best-case delivery time (i.e. the earliest time a byte of data could arrive
         # at the destination)
         # FIXME This doesn't yet consider everything it needs
-        return max([c.start for c in self.hops])
+        bdt = 0
+        for c in self.hops:
+            bdt = max(bdt + c.owlt, c.start + c.owlt)
+        return bdt
+
+    @property
+    def to_time(self):
+        to_time = sys.maxsize
+        for c in self.hops:
+            to_time = min(to_time, c.end)
+        return to_time
 
     @property
     def next_node(self):
         if self.hops:
             return self.hops[0].to
         return None
+
+    @property
+    def to_node(self):
+        if self.hops:
+            return self.hops[-1].to
+        return None
+
+    @property
+    def from_time(self):
+        if self.hops:
+            return self.hops[0].start
+        return 0
 
     def append(self, contact):
         """
@@ -197,9 +243,9 @@ def cgr_yens(src, dest, t_now, num_routes, contact_plan):
 
     # Find the lowest cost path using Dijkstra
     route = cgr_dijkstra(root, dest, contact_plan)
+
     if route is None:
         return route
-
     routes = [route]
 
     [r.hops.insert(0, root) for r in routes]
@@ -254,6 +300,7 @@ def cgr_yens(src, dest, t_now, num_routes, contact_plan):
                     total_path.append(hop)
                 for hop in spur_path.hops:  # append spur_path
                     total_path.append(hop)
+                # [NEW] Without this, there's a risk of getting repeated routes found
                 if total_path.hops not in [p.hops for p in potential_routes]:
                     potential_routes.append(total_path)
 
@@ -262,10 +309,10 @@ def cgr_yens(src, dest, t_now, num_routes, contact_plan):
             break
 
         # sort potential routes by arrival_time
-        potential_routes.sort(reverse=True)
+        potential_routes.sort()
 
         # add best route to routes
-        routes.append(potential_routes.pop())
+        routes.append(potential_routes.pop(0))
 
     # remove root_contact from hops
     for route in routes:
@@ -306,7 +353,6 @@ def cgr_dijkstra(root_contact, destination, contact_plan, deadline=sys.maxsize, 
 
     while True:
         for contact in contact_plan_hash[current.to]:
-            transfer_time = contact.rate * size
             if contact in current.suppressed_next_hop:
                 continue
             if contact.suppressed:
@@ -315,6 +361,9 @@ def cgr_dijkstra(root_contact, destination, contact_plan, deadline=sys.maxsize, 
                 continue
             if contact.to in current.visited_nodes:
                 continue
+
+            # TODO This is new, triple check I'm right here
+            transfer_time = contact.rate * size
             if contact.end <= current.arrival_time + transfer_time:
                 continue
 
