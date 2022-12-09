@@ -91,4 +91,11 @@ if __name__ == "__main__":
 
 	# Add some bundles on to node #1
 	init_bundles([n for n in nodes if n.uid == 1][0])
-	env = simpy.Environment
+	env = simpy.Environment()
+
+	for node in nodes:
+		env.process(node.bundle_assignment_controller(env))
+		env.process(node.contact_controller(env))  # Generator that initiates contacts
+
+	env.run(until=100)
+	print('')

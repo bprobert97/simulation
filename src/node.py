@@ -281,7 +281,7 @@ class Node:
                 t_now=env.now, bundle=b, is_task_table=False
             )
 
-            if n == b.dst:
+            if n == b.dst and self.task_table:
                 self.task_table[b.task_id].status = "delivered"
                 self._task_table_updated = True
             break
@@ -309,8 +309,9 @@ class Node:
                   f" {t_now:.1f}")
             pub.sendMessage("bundle_delivered")
             self.delivered_bundles.append(bundle)
-            self.task_table[bundle.task_id].status = "delivered"
-            self._task_table_updated = True
+            if self.task_table:
+                self.task_table[bundle.task_id].status = "delivered"
+                self._task_table_updated = True
             return
 
         print(f"<<< Bundle received on {self.uid} from {bundle.previous_node} at"
