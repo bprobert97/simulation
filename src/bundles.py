@@ -55,7 +55,7 @@ class Bundle:
 		target_id: If applicable, ID of the target to which the bundle relates
 		created_at: Time at which the bundle was created
 		size: Nominal size of the bundle payload data
-		lifetime: Absolute time after which the bundle has zero value
+		deadline: Absolute time after which the bundle has zero value
 		priority: Level of priority, higher value = higher priority. 0 = "Bulk",
 			1 = normal, 2 = expedited
 		critical: If True, the bundle is of "critical" type
@@ -70,7 +70,7 @@ class Bundle:
 	target_id: int = None
 	created_at: int = 0
 	size: int = 1
-	lifetime: int = 1000
+	deadline: int = 1000
 	priority: int = 0  #
 	critical: bool = False
 	fragment: bool = True

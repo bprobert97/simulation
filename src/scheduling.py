@@ -181,8 +181,8 @@ class Scheduler:
                 assignee=del_path.hops[0].frm,
                 scheduled_at=curr_time,
                 scheduled_by=parent,
-                pickup_time=acq_path.bdt,
-                delivery_time=del_path.bdt,
+                pickup_time=acq_path.best_delivery_time,
+                delivery_time=del_path.best_delivery_time,
                 acq_path=[x.uid for x in acq_path.hops],
                 del_path=[x.uid for x in del_path.hops]
             )
@@ -240,7 +240,7 @@ class Scheduler:
             path_acq = cgr_dijkstra(
                 root, request.target_id, contact_plan, request.deadline_acquire)
 
-            if not path_acq or path_acq.bdt >= earliest_delivery_time:
+            if not path_acq or path_acq.best_delivery_time >= earliest_delivery_time:
                 break
 
             # suppress all acquisition opportunities from this node so that it's not
@@ -255,11 +255,11 @@ class Scheduler:
             root_delivery = Contact(
                 path_acq.hops[-1].frm,
                 path_acq.hops[-1].frm,
-                path_acq.bdt,
+                path_acq.best_delivery_time,
                 sys.maxsize,
                 sys.maxsize
             )
-            root_delivery.arrival_time = path_acq.bdt
+            root_delivery.arrival_time = path_acq.best_delivery_time
 
             # Identify best route to the destination from our current acquiring node
             path_del = cgr_dijkstra(
@@ -276,8 +276,8 @@ class Scheduler:
                 continue
 
             # If this delivery route is better than our current "best", assign it
-            if path_del.bdt < earliest_delivery_time:
-                earliest_delivery_time = path_del.bdt
+            if path_del.best_delivery_time < earliest_delivery_time:
+                earliest_delivery_time = path_del.best_delivery_time
                 path_acq_selected = path_acq
                 path_del_selected = path_del
 

@@ -121,10 +121,17 @@ class Route:
         return min([x.volume for x in self.hops])
 
     @property
-    def bdt(self):
+    def best_delivery_time(self):
         # Best-case delivery time (i.e. the earliest time a byte of data could arrive
         # at the destination)
+        # FIXME This doesn't yet consider everything it needs
         return max([c.start for c in self.hops])
+
+    @property
+    def next_node(self):
+        if self.hops:
+            return self.hops[0].to
+        return None
 
     def append(self, contact):
         """
@@ -137,14 +144,14 @@ class Route:
     # Less than = this route is better than the other (less costly)
     def __lt__(self, other_route):
         # 1st priority : arrival time
-        if self.bdt < other_route.bdt:
+        if self.best_delivery_time < other_route.best_delivery_time:
             return True
 
         # FIXME This should prioritise routes that have earlier intermediate contacts.
         #  Currently, a route containing 3 contacts, with the middle one coming later,
         #  could be deemed better than one with the middle contact earlier.
         # 2nd: volume
-        elif self.bdt == other_route.bdt:
+        elif self.best_delivery_time == other_route.best_delivery_time:
             if self.volume > other_route.volume:
                 return True
 
@@ -156,11 +163,11 @@ class Route:
         return False
 
     def __repr__(self):
-        return "to:%s | via:%s | arvl:%s | hops:%s | volume:%s | conf:%s" % \
+        return "to:%s | via:%s | bdt:%s | hops:%s | volume:%s | conf:%s" % \
                (
                    self.hops[-1].to,
                    self.hops[0].to,
-                   self.bdt,
+                   self.best_delivery_time,
                    len(self.hops),
                    self.volume,
                    self.confidence
@@ -232,7 +239,7 @@ def cgr_yens(src, dest, t_now, num_routes, contact_plan):
 
             # prepare spur_contact as root contact
             spur_contact.clear_dijkstra_area()
-            spur_contact.arrival_time = root_path.bdt
+            spur_contact.arrival_time = root_path.best_delivery_time
             # spur_contact.cost = root_path.cost
             for hop in root_path.hops:  # add visited nodes to spur_contact
                 spur_contact.visited_nodes.append(hop.to)
@@ -506,7 +513,7 @@ def candidate_routes(curr_time, curr_node, contact_plan, bundle, routes,
 
         # 3.2.5.2 a) preparation: backward propagation
         if not return_to_sender:
-            if route.next_node is bundle.sender:
+            if route.next_node is bundle.previous_node:
                 excluded_nodes.append(route.next_node)
                 if debug:
                     print("preparation: next node is sender", route.next_node)
@@ -530,9 +537,19 @@ def candidate_routes(curr_time, curr_node, contact_plan, bundle, routes,
                     print("not candidate: contact in route tx to current node")
                 continue
 
+            # *** ADDED ***
+            # Check whether each contact has enough volume to accommodate the bundle,
+            # regardless of arrival times etc.
+            # TODO Make this priority specific
+            if contact.volume <= bundle.size:
+                if debug:
+                    print("not candidate: route depleted for bundle priority")
+                continue
+
         # 3.2.6.9 d) calculate eto and if it is later than 1st contact end time, ignore
         adjusted_start_time = max(curr_time, route.hops[0].start)
-        applicable_backlog_p = 0  # todo: this the current route.next_node queue status now for p or higher
+        # TODO account for priority in the backlog calculation
+        applicable_backlog_p = 0
         applicable_backlog_relief = 0
         for contact in contact_plan:
             if contact.frm == route.hops[0].frm and contact.to == route.hops[0].to:
@@ -552,6 +569,11 @@ def candidate_routes(curr_time, curr_node, contact_plan, bundle, routes,
                     "not candidate: earlier transmission opportunity is later than end of 1st contact")
             continue
 
+        # *** ADDED ***
+        # Based on what is already allocated to each hop, i.e. the remaining volume,
+        # the amount of nominal volume remaining, and the amount of capacity required
+        # to transfer this bundle, check that this route is feasible.
+
         # 3.2.6.9 e) use eto to compute projected arrival time
         prev_last_byte_arr_time = 0
         for contact in route.hops:
@@ -570,27 +592,36 @@ def candidate_routes(curr_time, curr_node, contact_plan, bundle, routes,
             continue
 
         # 3.2.6.9 f) if route depleted for bundle priority P, ignore
-        reserved_volume_p = 0  # todo: sum of al bundle.evc with p or higher that were forwarded via this route
+        # reserved_volume_p = 0  # todo: sum of al bundle.evc with p or higher that were forwarded via this route
         min_effective_volume_limit = sys.maxsize
         for contact in route.hops:
-            if reserved_volume_p >= contact.volume:
+            # if reserved_volume_p >= contact.volume:
+            if contact.volume <= bundle.size:  # ***CHANGED***
                 if debug:
                     print("not candidate: route depleted for bundle priority")
                 continue
 
+            # This checks to make sure a later contact isn't ending before we've had an
+            # opportunity to send over an earlier contact. E.g. if the first contact is
+            # from time 0-5, but the second is from 2-4, then this route isn't feasibly
+            # if we only have the final time period in the original contact remaining.
             effective_start_time = contact.first_byte_tx_time
             min_succ_stop_time = sys.maxsize
             index = route.hops.index(contact)
             for successor in route.hops[index:]:
-                if successor.end < min_succ_stop_time:
-                    min_succ_stop_time = successor.end
+                min_succ_stop_time = min(successor.end, min_succ_stop_time)
             effective_stop_time = min(contact.end, min_succ_stop_time)
             effective_duration = effective_stop_time - effective_start_time
+            # FIXME Update the below to use MAV
+            # contact.effective_volume_limit = min(effective_duration * contact.rate,
+            #                                      contact.mav[bundle.priority])
             contact.effective_volume_limit = min(effective_duration * contact.rate,
-                                                 contact.mav[bundle.priority])
+                                                 contact.volume)
             if contact.effective_volume_limit < min_effective_volume_limit:
                 min_effective_volume_limit = contact.effective_volume_limit
+
         route_volume_limit = min_effective_volume_limit
+        # TODO Why not the Bundle volume size?
         if route_volume_limit <= 0:
             if debug:
                 print("not candidate: route is depleted for the bundle priority")

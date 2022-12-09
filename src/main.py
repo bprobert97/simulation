@@ -84,7 +84,7 @@ def bundle_generator(env, sources, destinations):
 			f" {destination.uid}")
 		b = Bundle(
 			src=source.uid, dst=destination.uid, target_id=source.uid, size=size,
-			lifetime=deadline, created_at=env.now)
+			deadline=deadline, created_at=env.now)
 		source.buffer.append(b)
 		pub.sendMessage("bundle_acquired", b=b)
 
@@ -106,48 +106,6 @@ def init_space_nodes(nodes, targets, cp, cpwt):
 	return node_list
 
 
-def init_nodes(num_nodes, cp):
-	node_list = []
-	for n_uid in range(1, num_nodes+1):
-		n = Node(
-			n_uid,
-			buffer=Buffer(NODE_BUFFER_CAPACITY),
-			outbound_queues={x: [] for x in range(1, num_nodes+1)},
-			contact_plan=deepcopy(cp)
-		)
-
-		# Subscribe to any published messages that indicate a bundle has been sent to
-		# this node. This will execute the bundle_receive() method on board the
-		# receiving node at the time when the FULL bundle has been received, including
-		# any delay incurred through travel (OWLT)
-		pub.subscribe(n.bundle_receive, str(n_uid) + "bundle")
-
-		node_list.append(n)
-
-	return node_list
-
-
-def init_contact_plan():
-	"""
-	Create a contact plan. This must include contacts between the Scheduler (UID=0) and
-	remote nodes (UID=[0, 999]) and also between remote nodes and the target (UID=1000).
-	"""
-	cp = [
-		Contact(SCHEDULER_ID, 2, 0, 4),
-		Contact(1, 2, 5, 10, owlt=1),
-		Contact(2, 1, 6, 12, owlt=1),
-		Contact(1, 3, 15, 20, owlt=1),
-		Contact(3, 1, 15, 21, owlt=1),
-		Contact(3, TARGET_UID, 22, 22),  # Contact with the target
-		Contact(3, 4, 24, 26, owlt=1),
-		Contact(4, 3, 25, 26, owlt=1)
-	]
-
-	cp.sort()
-
-	return cp
-
-
 def create_route_tables(nodes, cp):
 	"""
 	Route Table creation - Invokes Yen's CGR algorithm to discover routes between
@@ -158,6 +116,8 @@ def create_route_tables(nodes, cp):
 			x for x in nodes if x.uid != node.uid
 		]:
 			routes = cgr_yens(node.uid, other.uid, 0, 5, cp)
+			# TODO Does this need to be a deepcopy, else we'll be pointing at the same
+			#  contacts across different nodes...
 			node.route_table[other.uid] = [] if not routes else routes
 
 
@@ -236,6 +196,7 @@ if __name__ == "__main__":
 	"""
 	random.seed(0)
 
+	# ****************** SPACE NETWORK SETUP ******************
 	# set up the space network nodes (satellites and gateways, and if known in advance,
 	# the targets)
 	filename = "input_files//sim_polar_simple.json"
@@ -246,12 +207,16 @@ if __name__ == "__main__":
 	sim_duration = inputs["simulation"]["duration"]
 	sim_step_size = inputs["simulation"]["step_size"]
 	times = [x for x in range(0, sim_duration, sim_step_size)]
+	# FIXME This won't work if we have multiple types of bundles with different sizes
+	bundle_size = inputs["bundles"]["size"]
 
 	targets, satellites, gateways = init_space_network(
 		sim_epoch, sim_duration, sim_step_size, inputs["targets"], inputs["satellites"],
 		inputs["gateways"]
 	)
 
+	# Get Contact Plan from the relative mobility between satellites, targets (sources)
+	# and gateways (sinks)
 	cp = review_contacts(
 		times,
 		{**satellites, **targets, **gateways},
@@ -260,33 +225,13 @@ if __name__ == "__main__":
 		targets
 	)
 
+	# ****************** SCHEDULING SPECIFIC PREPARATION ******************
 	# Create a contact plan that ONLY has contacts with target nodes and a contact plan
 	# that ONLY has contacts NOT with target nodes. The target CP will be used to
 	# extend the non-target one during request processing, but since target nodes don't
 	# participate in routing, they slow down the route discovery process if considered.
 	cp_with_targets = [c for c in cp if c.to in [t for t in targets]]
 	cp = [c for c in cp if c.to not in [t for t in targets]]
-
-	# Add a permanent contact between the MOC and the Gateways so that they can always
-	# be up-to-date in terms of the Task Table
-	for g in gateways:
-		cp.insert(0, Contact(SCHEDULER_ID, g, 0, sim_duration, sys.maxsize))
-
-	download_capacity = get_download_capacity(
-		cp,
-		[*gateways],
-		[*satellites]
-	)
-
-	# FIXME This won't work if we have multiple types of bundles with different sizes
-	bundle_size = inputs["bundles"]["size"]
-
-	bundle_arrival_wait_time = get_request_inter_arrival_time(
-			sim_duration,
-			download_capacity,
-			CONGESTION,
-			bundle_size
-		)
 
 	# Instantiate the Mission Operations Center, i.e. the Node at which requests arrive
 	# and then set up each of the remote nodes (including both satellites and gateways).
@@ -299,6 +244,24 @@ if __name__ == "__main__":
 		outbound_queues={x: [] for x in {**satellites,  **gateways}}
 	)
 	moc.scheduler.parent = moc
+
+	# Add a permanent contact between the MOC and the Gateways so that they can always
+	# be up-to-date in terms of the Task Table
+	for g in gateways:
+		cp.insert(0, Contact(moc.uid, g, 0, sim_duration, sys.maxsize))
+
+	download_capacity = get_download_capacity(
+		cp,
+		[*gateways],
+		[*satellites]
+	)
+
+	request_arrival_wait_time = get_request_inter_arrival_time(
+			sim_duration,
+			download_capacity,
+			CONGESTION,
+			bundle_size
+		)
 
 	nodes = init_space_nodes(
 		{**satellites,  **gateways}, [*targets], cp, cp_with_targets)
@@ -313,7 +276,7 @@ if __name__ == "__main__":
 		targets,
 		[x for x in gateways],
 		moc,
-		bundle_arrival_wait_time,
+		request_arrival_wait_time,
 		bundle_size,
 		inputs["bundles"]["priority"],
 		inputs["bundles"]["lifetime"]

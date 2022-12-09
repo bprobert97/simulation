@@ -156,13 +156,13 @@ class Node:
         """
         for task_id, task in self.task_table.items():
             if task.pickup_time == t_now and task.target == target:
-                bundle_lifetime = min(task.deadline_delivery, t_now+task.lifetime)
+                bundle_lifetime = min(task.deadline_delivery, t_now + task.lifetime)
                 bundle = Bundle(
                     src=self.uid,
                     dst=task.destination,
                     target_id=target,
                     size=task.size,
-                    lifetime=bundle_lifetime,
+                    deadline=bundle_lifetime,
                     created_at=t_now,
                     priority=task.priority,
                     task_id=task.uid
@@ -340,6 +340,10 @@ class Node:
             assigned = False
             b = self.buffer.extract()
 
+            candidates = candidate_routes(
+                t_now, self.uid, self.contact_plan, b, self.route_table[b.dst], []
+            )
+
             # if config.MSR and any(
             #         [b.base_route == [int(x.uid) for x in y.hops]
             #          for y in self.route_table[b.destination]]
@@ -368,7 +372,7 @@ class Node:
                 # if the route is not of higher value than the current best
                 # route, break from for loop as none of the others will be better
                 # TODO change this if converting to generic value rather than arrival time
-                if route.bdt > b.lifetime:
+                if route.best_delivery_time > b.deadline:
                     continue
 
                 # Check each of the hops and make sure the bundle can actually traverse
