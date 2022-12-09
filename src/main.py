@@ -106,7 +106,7 @@ def init_space_nodes(nodes, targets, cp, cpwt):
 	return node_list
 
 
-def create_route_tables(nodes, cp):
+def create_route_tables(nodes):
 	"""
 	Route Table creation - Invokes Yen's CGR algorithm to discover routes between
 	node-pairs, stores them in a dictionary and updates the route table on each node
@@ -115,10 +115,7 @@ def create_route_tables(nodes, cp):
 		for other in [
 			x for x in nodes if x.uid != node.uid
 		]:
-			routes = cgr_yens(node.uid, other.uid, 0, 5, cp)
-			# TODO Does this need to be a deepcopy, else we'll be pointing at the same
-			#  contacts across different nodes...
-			node.route_table[other.uid] = [] if not routes else routes
+			node.route_table[other.uid] = cgr_yens(node.uid, other.uid, 0, 100, node.contact_plan)
 
 
 def init_analytics():
@@ -233,6 +230,11 @@ if __name__ == "__main__":
 	cp_with_targets = [c for c in cp if c.to in [t for t in targets]]
 	cp = [c for c in cp if c.to not in [t for t in targets]]
 
+	# Add a permanent contact between the MOC and the Gateways so that they can always
+	# be up-to-date in terms of the Task Table
+	for g in gateways:
+		cp.insert(0, Contact(SCHEDULER_ID, g, 0, sim_duration, sys.maxsize))
+
 	# Instantiate the Mission Operations Center, i.e. the Node at which requests arrive
 	# and then set up each of the remote nodes (including both satellites and gateways).
 	moc = Node(
@@ -244,11 +246,6 @@ if __name__ == "__main__":
 		outbound_queues={x: [] for x in {**satellites,  **gateways}}
 	)
 	moc.scheduler.parent = moc
-
-	# Add a permanent contact between the MOC and the Gateways so that they can always
-	# be up-to-date in terms of the Task Table
-	for g in gateways:
-		cp.insert(0, Contact(moc.uid, g, 0, sim_duration, sys.maxsize))
 
 	download_capacity = get_download_capacity(
 		cp,
@@ -266,7 +263,7 @@ if __name__ == "__main__":
 	nodes = init_space_nodes(
 		{**satellites,  **gateways}, [*targets], cp, cp_with_targets)
 
-	create_route_tables(nodes, cp)
+	create_route_tables(nodes)
 
 	# Initiate the simpy environment, which keeps track of the event queue and triggers
 	# the next discrete event to take place

@@ -246,7 +246,7 @@ def cgr_yens(src, dest, t_now, num_routes, contact_plan):
     route = cgr_dijkstra(root, dest, contact_plan)
 
     if route is None:
-        return route
+        return []
     routes = [route]
 
     [r.hops.insert(0, root) for r in routes]
