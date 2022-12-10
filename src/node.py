@@ -171,6 +171,8 @@ class Node:
                 print(f"^^^ Bundle acquired on node {self.uid} at time {t_now} from "
                       f"target "
                       f"{target}")
+                if task.del_path:
+                    bundle.route = task.del_path
                 pub.sendMessage("bundle_acquired", b=bundle)
                 task.status = "acquired"
 
@@ -226,23 +228,18 @@ class Node:
                 # received at this time, due to the OWLT, but that's fine)
                 yield env.timeout(send_time)
 
-            # If we don't have enough time remaining to send this bundle, pop it into a
-            # list that can be processed (i.e. returned to the buffer) after the
-            # contact. If we added it back into the buffer right away, it might get put
-            # right back into the outbound queue...
-            # FIXME We should technically be able to put this into the buffer to get
-            #  reprocessed, because if there's insufficient resources to handle this
-            #  bundle over this contact, that should get spotted during the bundle
-            #  assignment process and it should therefore NOT get added to the OBQ
+            # If we don't have enough time remaining to send this bundle, add to the
+            # back of the outbound queue so that it gets processed (added back to the
+            # buffer, while handling resource considerations) along with any other
+            # remaining bundles in that queue
             else:
-                failed_bundles.append(bundle)
+                self.outbound_queues[contact.to].append(bundle)
 
         # print(f"contact between {self.uid} and {contact.to} ended at {env.now}")
 
         # Add any bundles that couldn't fit across the contact back in to the
         #  buffer so that they can be assigned to another outbound queue.
-        for b in failed_bundles + self.outbound_queues[contact.to]:
-            self.buffer.append(b)
+        self.return_outbound_queue_to_buffer(contact.to)
 
     def _handshake(self, env, to, delay):
         """
@@ -276,6 +273,10 @@ class Node:
             # Wait until the whole message has arrived and then invoke the "receive"
             # method on the receiving node
             yield env.timeout(delay)
+            if b.route:
+                next_hop = self.contact_plan_dict[b.route[0]]
+                if next_hop.to == n and next_hop.end > env.now:
+                    b.route.pop(0)
             pub.sendMessage(
                 str(n) + "bundle",
                 t_now=env.now, bundle=b, is_task_table=False
@@ -341,26 +342,33 @@ class Node:
             assigned = False
             b = self.buffer.extract()
 
+            # If the use of Moderate Source Routing is encouraged, then we should check
+            # to see if a nominal (and feasible) route exists on the bundle. If it
+            # does, use it, else remove the existing (infeasible) route if there and
+            # assign based on routes in the route table.
+            if self.msr:
+                if b.route:
+                    next_hop = self.contact_plan_dict[b.route[0]]
+                    # If the next hop in the bundle's intended journey has not yet
+                    # finished, add it to that next node's outbound queue. Otherwise,
+                    # remove the route and use CGR.
+                    if next_hop.end > t_now:
+                        # TODO there's a chance that this route won't be feasible in
+                        #  terms of resources, such that we reduce them to below zero.
+                        #  How to handle this...
+                        self.outbound_queues[next_hop.to].append(b)
+                        hops = []
+                        for hop in b.route:
+                            hops.append(self.contact_plan_dict[hop])
+                        self._contact_resource_update(hops, b.size)
+                        continue
+                    else:
+                        b.route = []
+
             candidates = candidate_routes(
                 t_now, self.uid, self.contact_plan, b, self.route_table[b.dst], []
             )
 
-            # if config.MSR and any(
-            #         [b.base_route == [int(x.uid) for x in y.hops]
-            #          for y in self.route_table[b.destination]]
-            # ):
-            #     for route in self.route_table[b.destination]:
-            #         if b.base_route == [int(x.uid) for x in route.hops]:
-            #             # Add the bundle-route pair to the send_list for the "next node"
-            #             self.outbound_queues[route.hops[0].to].append((b, route))
-            #
-            #             # Update the resources on the selected route
-            #             self.resource_consumption(
-            #                 b.size,
-            #                 route
-            #             )
-            #             break
-            #     continue
             for route in candidates:
                 # If any of the nodes along this route are in the "excluded nodes"
                 # list, then we shouldn't assign it along this route
@@ -409,12 +417,12 @@ class Node:
                 self.outbound_queues[route.hops[0].to].append(b)
 
                 # Update the resources on the selected route
-                for hop in route.hops:
-                    self._contact_resource_update(hop, b.size)
+                self._contact_resource_update(route.hops, b.size)
                 break
 
             if not assigned:
                 self.drop_list.append(b)
+                print(f"Bundle dropped from network at {t_now} on node {self.uid}")
                 pub.sendMessage("bundle_dropped")
 
     def return_outbound_queue_to_buffer(self, to):
@@ -425,12 +433,14 @@ class Node:
         """
         while self.outbound_queues[to]:
             bundle = self.outbound_queues[to].pop()
+            hops = []
             for hop in bundle.route:
-                # TODO maybe better to use MAV here, since we know the priority
-                self._contact_resource_update(self.contact_plan_dict[hop], -bundle.size)
+                hops.append(self.contact_plan_dict[hop])
+            # TODO maybe better to use MAV here, since we know the priority
+            self._contact_resource_update(hops, -bundle.size)
 
     @staticmethod
-    def _contact_resource_update(contact: Contact, data_size: int | float) -> None:
+    def _contact_resource_update(contacts: list, data_size: int | float) -> None:
         """Consume or replenish resources on a Contact.
 
         Contact volume is reduced (if data is being sent) or increased (if data is no
@@ -440,7 +450,8 @@ class Node:
             contact: ID of the contact on which resources should be updated
             data_size: Volume of the data being transferred over the contact
         """
-        contact.volume -= data_size
+        for contact in contacts:
+            contact.volume -= data_size
 
     def _merge_task_tables(self, tt_other):
         """

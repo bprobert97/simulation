@@ -362,6 +362,9 @@ def cgr_dijkstra(root_contact, destination, contact_plan, deadline=sys.maxsize, 
                 continue
             if contact.to in current.visited_nodes:
                 continue
+            # [NEW] Check that this contact is even worth looking at for our task
+            if contact.start >= deadline:
+                continue
 
             # TODO This is new, triple check I'm right here
             transfer_time = contact.rate * size

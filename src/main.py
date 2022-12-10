@@ -25,8 +25,8 @@ NUM_NODES = 4
 NODE_BUFFER_CAPACITY = 100000
 NUM_BUNDLES = [5, 10]
 BUNDLE_ARRIVAL_RATE = 0.2  # Mean number of bundles to be generated per unit time
+BUNDLE_SIZE = [1, 5]
 BUNDLE_TTL = 25  # Time to live for a
-CONGESTION = 0.5
 TARGET_UID = 999
 
 SCHEDULER_ID = 0
@@ -89,7 +89,7 @@ def bundle_generator(env, sources, destinations):
 		pub.sendMessage("bundle_acquired", b=b)
 
 
-def init_space_nodes(nodes, targets, cp, cpwt):
+def init_space_nodes(nodes, targets, cp, cpwt, msr=True):
 	node_ids = [x for x in nodes]
 	node_list = []
 	for n_uid, n in nodes.items():
@@ -98,7 +98,8 @@ def init_space_nodes(nodes, targets, cp, cpwt):
 			buffer=Buffer(NODE_BUFFER_CAPACITY),
 			outbound_queues={x: [] for x in node_ids},
 			contact_plan=deepcopy(cp),
-			contact_plan_targets=deepcopy(cpwt)
+			contact_plan_targets=deepcopy(cpwt),
+			msr=msr
 		)
 		n._targets = targets
 		pub.subscribe(n.bundle_receive, str(n_uid) + "bundle")
@@ -119,6 +120,12 @@ def create_route_tables(nodes):
 
 
 def init_analytics():
+	"""The analytics module tracks events that occur during the simulation.
+
+	This includes keeping a log of every request, task and bundle object, and counting
+	the number of times a specific movement is made (e.g. forwarding, dropping,
+	state transition etc).
+	"""
 	a = Analytics()
 
 	pub.subscribe(a.submit_request, "request_submit")
@@ -205,7 +212,7 @@ if __name__ == "__main__":
 	sim_step_size = inputs["simulation"]["step_size"]
 	times = [x for x in range(0, sim_duration, sim_step_size)]
 	# FIXME This won't work if we have multiple types of bundles with different sizes
-	bundle_size = inputs["bundles"]["size"]
+	bundle_size = inputs["traffic"]["size"]
 
 	targets, satellites, gateways = init_space_network(
 		sim_epoch, sim_duration, sim_step_size, inputs["targets"], inputs["satellites"],
@@ -256,12 +263,13 @@ if __name__ == "__main__":
 	request_arrival_wait_time = get_request_inter_arrival_time(
 			sim_duration,
 			download_capacity,
-			CONGESTION,
+			inputs["traffic"]["congestion"],
 			bundle_size
 		)
 
 	nodes = init_space_nodes(
-		{**satellites,  **gateways}, [*targets], cp, cp_with_targets)
+		{**satellites,  **gateways}, [*targets], cp, cp_with_targets, inputs[
+			"satellites"]["msr"])
 
 	create_route_tables(nodes)
 
@@ -275,8 +283,8 @@ if __name__ == "__main__":
 		moc,
 		request_arrival_wait_time,
 		bundle_size,
-		inputs["bundles"]["priority"],
-		inputs["bundles"]["lifetime"]
+		inputs["traffic"]["priority"],
+		inputs["traffic"]["lifetime"]
 	))
 
 	# Set up the Simpy Processes on each of the Nodes. These are effectively the
