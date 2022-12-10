@@ -45,6 +45,13 @@ class Buffer:
 	def is_empty(self):
 		return True if not self.bundles else False
 
+	def __repr__(self):
+		return "Buffer: Qty %d | level %d%% | capacity %d" % (
+			len(self.bundles),
+			self.capacity_remaining / self.capacity,
+			self.capacity
+		)
+
 
 @dataclass
 class Bundle:
@@ -61,6 +68,10 @@ class Bundle:
 			1 = normal, 2 = expedited
 		critical: If True, the bundle is of "critical" type
 		fragment: If True, the bundle must not be fragmented
+		task_id: Unique ID of the task to which this bundle is linked
+		obey_route: Flag indicating whether (True) or not (False) this bundle must ONLY
+			traverse the route to which it has been assigned, or if it can be forwarded
+			to its next node earlier than planned
 		previous_node: ID of the last node to forward (transmit) the bundle
 		hop_count: Number of contacts over which the bundle has been forwarded
 		_age: Age of the bundle immediately prior to the most recent forwarding event
@@ -76,6 +87,7 @@ class Bundle:
 	critical: bool = False
 	fragment: bool = True
 	task_id: int = None
+	obey_route: bool = False
 	previous_node: int = field(init=False, default=None)
 	hop_count: int = field(init=False, default=0)
 	_route: List = field(init=False, default_factory=list)
@@ -128,10 +140,10 @@ class Bundle:
 			return True
 
 		if self.priority == other.priority:
-			if self.age > other.age:
+			if self.created_at < other.created_at:
 				return True
 
-			if self.age == other.age:
+			if self.created_at == other.created_at:
 				if self.hop_count > other.hop_count:
 					return True
 
