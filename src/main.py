@@ -101,7 +101,7 @@ def init_space_nodes(nodes, targets, cp, cpwt, msr=True):
 			contact_plan_targets=deepcopy(cpwt),
 			msr=msr
 		)
-		n._targets = targets
+		# n._targets = targets
 		pub.subscribe(n.bundle_receive, str(n_uid) + "bundle")
 		node_list.append(n)
 	return node_list
@@ -315,6 +315,8 @@ if __name__ == "__main__":
 	print(f"{analytics.bundles_acquired} Bundles were acquired")
 	print(f"{analytics.bundles_forwarded} Bundles were forwarded")
 	print(f"{analytics.bundles_delivered} Bundles were delivered")
-	print(f"{analytics.bundles_dropped} Bundles were dropped")
+	print(f"{analytics.bundles_dropped} Bundles were dropped\n")
+	print("*** PERFORMANCE DATA ***")
+	print(f"The average bundle latency is {analytics.latency_ave}")
+	print(f"The bundle latency Std. Dev. is {analytics.latency_stdev}")
 
-	print('')

@@ -18,7 +18,7 @@ class Request:
     target_alt: float = None
     deadline_acquire: int = None
     deadline_deliver: int = None
-    bundle_lifetime: int = None
+    bundle_lifetime: int = sys.maxsize
     priority: int = 0
     destination: int = 999
     data_volume: int = 1

@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+from statistics import mean, stdev
+
 
 class Analytics:
 	def __init__(self):
@@ -22,6 +24,16 @@ class Analytics:
 		self.bundles_delivered = 0
 		self.bundles_dropped = 0
 		self.bundles_rerouted = 0
+
+		self.latencies = []
+
+	@property
+	def latency_ave(self):
+		return mean(self.latencies)
+
+	@property
+	def latency_stdev(self):
+		return stdev(self.latencies)
 
 	def submit_request(self, r):
 		self.requests.append(r)
@@ -56,7 +68,8 @@ class Analytics:
 	def forward_bundle(self):
 		self.bundles_forwarded += 1
 
-	def deliver_bundle(self):
+	def deliver_bundle(self, b, t_now):
+		self.latencies.append(t_now - b.created_at)
 		self.bundles_delivered += 1
 
 	def drop_bundle(self):
