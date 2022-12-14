@@ -46,10 +46,10 @@ class Buffer:
 		return True if not self.bundles else False
 
 	def __repr__(self):
-		return "Buffer: Qty %d | level %d%% | capacity %d" % (
+		return "Buffer: qty %d | available %d%% | remaining vol %d" % (
 			len(self.bundles),
-			self.capacity_remaining / self.capacity,
-			self.capacity
+			100 * self.capacity_remaining / self.capacity,
+			self.capacity_remaining
 		)
 
 

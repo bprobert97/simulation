@@ -9,7 +9,8 @@ from pubsub import pub
 
 from scheduling import Scheduler, Request, Task
 from bundles import Buffer, Bundle
-from routing import candidate_routes, Contact
+from routing import candidate_routes
+from misc import id_generator
 
 
 OUTBOUND_QUEUE_INTERVAL = 1
@@ -50,9 +51,12 @@ class Node:
     _targets: Set = field(init=False, default_factory=set)
     _contact_plan_self: List = field(init=False, default_factory=list)
     _contact_plan_dict: Dict = field(init=False, default_factory=dict)
+    _eid: str = field(init=False, default_factory=lambda: id_generator())
 
     def __post_init__(self) -> None:
         self.update_contact_plan(self.contact_plan)
+        if self.scheduler:
+            self.scheduler.parent = self
 
     def update_contact_plan(self, cp=None, cp_targets=None):
         if cp:
@@ -320,7 +324,7 @@ class Node:
                 t_now=env.now, bundle=bundle, is_task_table=False
             )
 
-            break
+            return
 
     def bundle_receive(self, t_now, bundle, is_task_table=False):
         """
@@ -456,7 +460,8 @@ class Node:
             if not assigned:
                 self.drop_list.append(b)
                 if DEBUG:
-                    print(f"Bundle dropped from network at {t_now} on node {self.uid}")
+                    print(f"XXX Bundle dropped from network at {t_now} on node"
+                          f" {self.uid}")
                 pub.sendMessage("bundle_dropped")
 
     def _return_outbound_queue_to_buffer(self, to):

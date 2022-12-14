@@ -290,5 +290,8 @@ class Scheduler:
     @staticmethod
     def _suppress_contacts_from_node(node_from, node_to, contact_plan):
         for contact in contact_plan:
-            if int(contact.frm) == node_from and int(contact.to) == node_to:
+            # TODO Check the removal of "int(...)" here doesn't cause issues. We should
+            #  be able to use strings as the UIDs without any issue, so I don't see why
+            #  we need to convert to int
+            if contact.frm == node_from and contact.to == node_to:
                 contact.suppressed = True

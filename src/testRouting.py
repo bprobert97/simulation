@@ -6,27 +6,27 @@ from pubsub import pub
 
 from main import init_analytics
 from node import Node
-from bundles import Buffer, Bundle
 from scheduling import Scheduler, Request
 from routing import Contact, cgr_yens
+from misc import id_generator
 
 
-def init_contact_plan():
+def init_contact_plan(n0, n1, n2):
 	cp = [
-		Contact(0, 1, 0, 2),
-		Contact(0, 2, 2, 4),
-		Contact(1, 2, 13, 15),
-		Contact(2, 1, 13, 15),
-		Contact(1, 0, 20, 21),
-		Contact(2, 0, 25, 28)
+		Contact(n0, n1, 0, 2),
+		Contact(n0, n2, 2, 4),
+		Contact(n1, n2, 13, 15),
+		Contact(n2, n1, 13, 15),
+		Contact(n1, n0, 20, 21),
+		Contact(n2, n0, 25, 28)
 	]
 	return cp
 
 
-def init_contact_plan_targets():
+def init_contact_plan_targets(n1, n2):
 	cp = [
-		Contact(2, 20, 5, 5),
-		Contact(1, 10, 10, 10),
+		Contact(n2, 20, 5, 5),
+		Contact(n1, 10, 10, 10),
 	]
 	return cp
 
@@ -34,8 +34,8 @@ def init_contact_plan_targets():
 def init_requests(env, scheduler):
 	wait_times = [0, 2]
 	requests = [
-		Request(10, deadline_deliver=22, time_created=0, destination=0),
-		Request(20, deadline_deliver=30, time_created=2, destination=0)
+		Request(10, deadline_deliver=22, time_created=0, destination=scheduler.uid),
+		Request(20, deadline_deliver=30, time_created=2, destination=scheduler.uid)
 	]
 	while wait_times:
 		wait = wait_times.pop(0)
@@ -47,7 +47,30 @@ def init_requests(env, scheduler):
 
 
 class MyTestCase(unittest.TestCase):
-	def test_msr_vs_cgr_simple_case(self):
+	def setUp(self) -> None:
+		# FIXME Using the ID Generator to generate random UIDs because pubsub seems to be
+		#   "remembering" the nodes from previous simulations that share IDs and
+		#   triggering. Having the IDs as truly unique, we're able to avoid this hang-up
+		scheduler = Node(0, Scheduler())  # Node(id_generator(), Scheduler())
+		node1 = Node(1)  # Node(id_generator())
+		node2 = Node(2)  # Node(id_generator())
+		self.nodes = [scheduler, node1, node2]
+		self.analytics = init_analytics()
+
+		cp = init_contact_plan(scheduler.uid, node1.uid, node2.uid)
+		cpt = init_contact_plan_targets(node1.uid, node2.uid)
+		for node in self.nodes:
+			node.update_contact_plan(deepcopy(cp), deepcopy(cpt))
+			node.outbound_queues = {x.uid: [] for x in self.nodes if x.uid != node.uid}
+			pub.subscribe(node.bundle_receive, str(node.uid) + "bundle")
+			for n_ in [x for x in [scheduler.uid, node1.uid, node2.uid] if x != node.uid]:
+				node.route_table[n_] = cgr_yens(
+					node.uid, n_, 0, 100, node.contact_plan)
+
+	def tearDown(self) -> None:
+		pub.unsubAll()
+
+	def test_show_msr_delivers_both_bundles(self):
 		"""Validate benefit of MSR over CGR in a simple example
 
 		The scenario here is:
@@ -61,42 +84,37 @@ class MyTestCase(unittest.TestCase):
 		this is not done, since R2's bundle is "older" and therefore should have priority.
 
 		"""
-		# analytics = init_analytics()
-		# nodes = network_setup(msr=True)
-		# del analytics
-		# del nodes
-		# self.assertEqual(True, False)  # add assertion here
-		analytics = init_analytics()
-		nodes = network_setup(msr=False)
-		print(analytics.bundles_delivered)
-		print(analytics.bundles_forwarded)
-		print(analytics.bundles_dropped)
+		print("starting MSR test")
+		for node in self.nodes:
+			node.msr = True
+		env = simpy.Environment()
+		env.process(init_requests(env, self.nodes[0]))
+		for node in self.nodes:
+			env.process(node.bundle_assignment_controller(env))
+			env.process(node.contact_controller(env))  # Generator that initiates contacts
+		env.run(until=100)
+
+		print(self.analytics.bundles_delivered)
+		print(self.analytics.bundles_forwarded)
+		print(self.analytics.bundles_dropped)
+
+	def test_show_cgr_drops_the_high_priority_bundle(self):
+		print("starting CGR test")
+		for node in self.nodes:
+			node.msr = False
+		env = simpy.Environment()
+		env.process(init_requests(env, self.nodes[0]))
+		for node in self.nodes:
+			env.process(node.bundle_assignment_controller(env))
+			env.process(node.contact_controller(env))  # Generator that initiates contacts
+		env.run(until=100)
+		print(self.analytics.bundles_delivered)
+		print(self.analytics.bundles_forwarded)
+		print(self.analytics.bundles_dropped)
+		del env
 
 
-def network_setup(msr):
-	scheduler = Node(0, Scheduler())
-	scheduler.scheduler.parent = scheduler
-	node1 = Node(1, msr=msr)
-	node2 = Node(2, msr=msr)
-	nodes = [scheduler, node1, node2]
-
-	cp = init_contact_plan()
-	cpt = init_contact_plan_targets()
-	for node in nodes:
-		node.update_contact_plan(deepcopy(cp), deepcopy(cpt))
-		node.outbound_queues = {x.uid: [] for x in nodes if x.uid != node.uid}
-		pub.subscribe(node.bundle_receive, str(node.uid) + "bundle")
-		for n_ in [x for x in [0, 1, 2, 10, 20] if x != node.uid]:
-			node.route_table[n_] = cgr_yens(
-				node.uid, n_, 0, 100, node.contact_plan)
-
-	env = simpy.Environment()
-	env.process(init_requests(env, scheduler))
-	for node in nodes:
-		env.process(node.bundle_assignment_controller(env))
-		env.process(node.contact_controller(env))  # Generator that initiates contacts
-	env.run(until=100)
-	return nodes
+# def network_setup(msr):
 
 
 if __name__ == '__main__':
