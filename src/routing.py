@@ -557,7 +557,7 @@ def contact_selection(contact_plan, bdt, deadline):
 
 
 def candidate_routes(curr_time, curr_node, contact_plan, bundle, routes,
-                     excluded_nodes, debug=False):
+                     excluded_nodes, obq=None, debug=False):
 
     return_to_sender = False
     candidate_routes = []
@@ -593,27 +593,58 @@ def candidate_routes(curr_time, curr_node, contact_plan, bundle, routes,
 
             # *** ADDED ***
             # Check whether each contact has enough volume to accommodate the bundle,
-            # regardless of arrival times etc.
+            # regardless of arrival times etc. This assumes we can make use of whatever
+            # volume exists on the contact, despite the fact that, in the case of
+            # over-lapping contacts, this won't always be true. However, this offers a
+            # fast check to make sure we're not over-subscribing the contact,
+            # in a best-case scenario.
             # TODO Make this priority specific
-            if contact.volume <= bundle.size:
+            if contact.volume < bundle.size:
                 if debug:
                     print("not candidate: route depleted for bundle priority")
                 continue
 
         # 3.2.6.9 d) calculate eto and if it is later than 1st contact end time, ignore
-        adjusted_start_time = max(curr_time, route.hops[0].start)
-        # TODO account for priority in the backlog calculation
-        applicable_backlog_p = 0
-        applicable_backlog_relief = 0
+        # This basically just looks at the current bundle allocation to the route's
+        # "next node" and, if there's already enough bundles in the queue to fill up
+        # the first hop's capacity (assuming other, earlier contacts with this first
+        # hop's recipient), we can ignore this node.
+        # FIXME I don't think we really need this, given how we're handling the contact
+        #  volumes. When we assign a bundle to a route, we deplete the contact's volume
+        #  such that we already know which contacts are "full". of course, this doesn't
+        #  account for actual arrival times, so this is still of value, but since this
+        #  is only looking at the first hop, it should work.
+        #  What is this actually doing? It's saying "for the first hop in this route,
+        #  do we already have more bundles in the recipient's OBQ such that we can't
+        #  fit any more over this contact? If not, then we're ok to consider this as a
+        #  candidate, otherwise, we won't. So, I still think it's valid because it
+        #  dives a little deeper than just the pure volume check. Still not convinced
+        #  though, since the OBQ will be continuously updated during a contact,
+        #  which is when this really comes into play.
+        adjusted_start_time = max(curr_time, route.hops[0].start)  # line 4
+
+        # Applicable Backlog Volume (for priority p), i.e. this is the volume of data
+        # currently in the transmission queue (OBQ) for the route's "next node",
+        # who's priority (p) is greater than, or equal to, that of this bundle
+        # TODO account for priority in the backlog calculation. This is not accounted
+        #  for in Algorithm 5 either, it is just called out without definition. As
+        #  such, this is something that needs to be continuously updated based on the
+        #  assignment of bundles.
+        if obq:
+            applicable_backlog_p = sum(b.size for b in obq[route.next_node])
+        else:
+            applicable_backlog_p = 0
+
+        applicable_backlog_relief = 0  # line 5 (v_prior)
         for contact in contact_plan:
             if contact.frm == route.hops[0].frm and contact.to == route.hops[0].to:
                 if contact.end > curr_time and contact.start < route.hops[0].start:
-                    # How much of the contact is remaining?
+                    # How much of the contact is remaining (from now)?
                     applicable_duration = contact.end - max(curr_time, contact.start)
-                    # How much volume is there remaining?
+                    # How much data can we fit over this contact (assuming its clear)?
                     applicable_prior_contact_volume = applicable_duration * contact.rate
                     # What is the total backlog "relief"
-                    applicable_backlog_relief += applicable_prior_contact_volume
+                    applicable_backlog_relief += applicable_prior_contact_volume  # line 7
         residual_backlog = max(0, applicable_backlog_p - applicable_backlog_relief)
         backlog_lien = residual_backlog / route.hops[0].rate
         early_tx_opportunity = adjusted_start_time + backlog_lien
@@ -629,6 +660,8 @@ def candidate_routes(curr_time, curr_node, contact_plan, bundle, routes,
         # to transfer this bundle, check that this route is feasible.
 
         # 3.2.6.9 e) use eto to compute projected arrival time
+        # TODO: This assumes contacts beyond the first hop are fully available,
+        #   i.e. no consideration of remaining volume on these contacts.
         prev_last_byte_arr_time = 0
         for contact in route.hops:
             if contact == route.hops[0]:
@@ -650,7 +683,8 @@ def candidate_routes(curr_time, curr_node, contact_plan, bundle, routes,
         min_effective_volume_limit = sys.maxsize
         for contact in route.hops:
             # if reserved_volume_p >= contact.volume:
-            if contact.volume <= bundle.size:  # ***CHANGED***
+            # TODO Remove this as it repeats from above
+            if contact.volume < bundle.size:  # ***CHANGED***
                 if debug:
                     print("not candidate: route depleted for bundle priority")
                 continue

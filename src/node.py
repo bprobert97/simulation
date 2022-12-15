@@ -411,7 +411,8 @@ class Node:
                     b.obey_route = False
 
             candidates = candidate_routes(
-                t_now, self.uid, self.contact_plan, b, self.route_table[b.dst], []
+                t_now, self.uid, self.contact_plan, b, self.route_table[b.dst], [],
+                self.outbound_queues
             )
 
             for route in candidates:
