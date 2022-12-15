@@ -54,7 +54,7 @@ class Node:
     _eid: str = field(init=False, default_factory=lambda: id_generator())
 
     def __post_init__(self) -> None:
-        self.update_contact_plan(self.contact_plan)
+        self.update_contact_plan(self.contact_plan, self.contact_plan_targets)
         if self.scheduler:
             self.scheduler.parent = self
 
@@ -273,11 +273,12 @@ class Node:
             # fine as we can start sending the next already)
             yield env.timeout(send_time)
 
-        if DEBUG:
-            print(f"contact between {self.uid} and {contact.to} ended at {env.now}")
         # Add any bundles that couldn't fit across the contact back in to the
         #  buffer so that they can be assigned to another outbound queue.
         self._return_outbound_queue_to_buffer(contact.to)
+
+        if DEBUG:
+            print(f"contact between {self.uid} and {contact.to} ended at {env.now}")
 
     def _handshake(self, env, to, delay):
         """
