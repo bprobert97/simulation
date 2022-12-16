@@ -48,12 +48,9 @@ def init_requests(env, scheduler):
 
 class MyTestCase(unittest.TestCase):
 	def setUp(self) -> None:
-		# FIXME Using the ID Generator to generate random UIDs because pubsub seems to be
-		#   "remembering" the nodes from previous simulations that share IDs and
-		#   triggering. Having the IDs as truly unique, we're able to avoid this hang-up
-		scheduler = Node(0, Scheduler())  # Node(id_generator(), Scheduler())
-		node1 = Node(1)  # Node(id_generator())
-		node2 = Node(2)  # Node(id_generator())
+		scheduler = Node(0, Scheduler())
+		node1 = Node(1)
+		node2 = Node(2)
 		self.nodes = [scheduler, node1, node2]
 		self.analytics = init_analytics()
 
@@ -97,6 +94,7 @@ class MyTestCase(unittest.TestCase):
 		print(self.analytics.bundles_delivered)
 		print(self.analytics.bundles_forwarded)
 		print(self.analytics.bundles_dropped)
+		print(self.analytics.latency_ave)
 
 	def test_show_cgr_drops_the_high_priority_bundle(self):
 		print("starting CGR test")
@@ -111,6 +109,7 @@ class MyTestCase(unittest.TestCase):
 		print(self.analytics.bundles_delivered)
 		print(self.analytics.bundles_forwarded)
 		print(self.analytics.bundles_dropped)
+		print(self.analytics.latency_ave)
 		del env
 
 

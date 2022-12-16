@@ -52,6 +52,7 @@ class Node:
     _contact_plan_self: List = field(init=False, default_factory=list)
     _contact_plan_dict: Dict = field(init=False, default_factory=dict)
     _eid: str = field(init=False, default_factory=lambda: id_generator())
+    _outbound_queue_all: List = field(init=False, default_factory=list)
 
     def __post_init__(self) -> None:
         self.update_contact_plan(self.contact_plan, self.contact_plan_targets)
@@ -235,6 +236,7 @@ class Node:
                 continue
 
             bundle = self.outbound_queues[contact.to].pop(0)
+            self._outbound_queue_all.remove(bundle)
             send_time = bundle.size / contact.rate
             # Check that there's a sufficient amount of time remaining in the contact
             if contact.end - env.now < send_time:
@@ -399,6 +401,7 @@ class Node:
                     #  terms of resources, such that we reduce them to below zero.
                     #  How to handle this...
                     self.outbound_queues[next_hop.to].append(b)
+                    self._outbound_queue_all.append(b)
                     hops = []
                     for hop in b.route:
                         hops.append(self._contact_plan_dict[hop])
@@ -451,6 +454,7 @@ class Node:
 
                 # Add the bundle to the outbound queue for the bundle's "next node"
                 self.outbound_queues[route.hops[0].to].append(b)
+                self._outbound_queue_all.append(b)
 
                 # Update the resources on the selected route
                 self._contact_resource_update(route.hops, b.size)
@@ -474,10 +478,10 @@ class Node:
         """
         while self.outbound_queues[to]:
             bundle = self.outbound_queues[to].pop()
+            self._outbound_queue_all.append(bundle)
             self._return_bundle_to_buffer(bundle)
 
     def _return_bundle_to_buffer(self, bundle):
-        # TODO maybe better to use MAV here, since we know the priority
         if bundle.route:
             hops = []
             for hop in bundle.route:
@@ -487,43 +491,55 @@ class Node:
         if DEBUG:
             print(f"returned bundle to Buffer on {self.uid}")
 
-    @staticmethod
-    def _contact_resource_update(contacts: list, size: int | float, priority: int = 0) \
-            -> None:
+    def _contact_resource_update(
+            self, contacts: list, size: int | float, priority: int = 0) -> None:
         """Consume or replenish resources on a Contact.
 
         Contact volume is reduced (if data is being sent) or increased (if data is no
         longer being sent) according to traffic flow
 
         Args:
-            contact: ID of the contact on which resources should be updated
+            contacts: IDs of the contacts on which resources should be updated
             size: Volume of the data being transferred over the contact
         """
         if priority not in [0, 1, 2]:
             raise ValueError("Bundle priority not defined in valid range")
 
-        over_subscribed = []
+        overbooked_contacts = set()
         for contact in contacts:
             for p in range(priority+1):
                 contact.mav[p] -= size
 
                 if min(contact.mav) < 0:
-                    over_subscribed.append(contact)
+                    overbooked_contacts.add(contact)
 
-        # TODO Check to see if any of the route's contacts are now over-subscribed. If
-        #  so, we should extract the lowest priority bundles that currently use those
-        #  contacts and re-route them. To do this, we need to evaluate the bundles that
-        #  have been assigned to a route, LP first, and then if they use the
-        #  over-subscribed contact, add them back into the buffer and re-assign based
-        #  on the latest knowledge. What this fails to do is be optimal in terms of
-        #  which contacts are addressed first. E.g. say hops 2 & 3 are over-subscribed.
-        #  It may be the case that the first bundle we evaluate uses hop 2,
-        #  so we re-assign that, but then the next bundle actually uses hops 2 & 3 such
-        #  that we only actually needed to re-route that one. In addition to this,
-        #  by working purely backwards like this, we're assigning lower-priority
-        #  bundles ahead of higher ones, potentially, so really we should extract ALL
-        #  of the bundles necessary to ensure no over-subscribed contacts and,
-        #  then assign them all, HP first.
+        if not overbooked_contacts:
+            return
+        self._handle_contact_over_booking(list(overbooked_contacts))
+
+    def _handle_contact_over_booking(self, overbooked_contacts: list) -> None:
+        """Return bundles to the buffer until no over-booked contacts.
+
+        While we're over-booked on at least one contact, pop bundles from the list of
+        that have been assigned already and add, if they use at least one of the
+        over-booked contacts, add them back into the Buffer. This will replenish
+        resources on each of the contacts to which the bundle was assigned. Once no
+        over-booked contacts exist, add the bundles that were popped, but not returned
+        to the buffer, back in to the assigned list.
+
+        Args:
+            overbooked_contacts: List of Contact objects that are over-booked
+        """
+        return_to_obq = []
+        self._outbound_queue_all.sort()
+        while any([min(c.mav) < 0 for c in overbooked_contacts]):
+            bundle = self._outbound_queue_all.pop()
+            if set(bundle.route) & set([x.uid for x in overbooked_contacts]):
+                self.outbound_queues[bundle.route.hops[0].to].remove(bundle)
+                self._return_bundle_to_buffer(bundle)
+            else:
+                return_to_obq.append(bundle)
+        self._outbound_queue_all.extend(return_to_obq)
 
     def _merge_task_tables(self, tt_other):
         """
