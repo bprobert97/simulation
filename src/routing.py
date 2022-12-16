@@ -36,9 +36,9 @@ class Contact:
         #  that gets passed around, so it doesn't really make sense to point to a Contact
         self.__uid = f"{self.frm}_{self.to}_{self.start}"
         self.volume = self.rate * (self.end - self.start)
-
-        # TODO Add this in for priority-specific resource consideration
-        # self.mav = [self.volume, self.volume, self.volume]
+        
+        # Priority-specific volume. Index represents priority level, so mav[0] = "bulk"
+        self.mav = [self.volume, self.volume, self.volume]
 
     @property
     def uid(self):
@@ -83,7 +83,7 @@ class Contact:
         if self.volume <= 0:
             volume = 0
         else:
-            volume = self.volume  # 100 * min(self.mav) / self.volume
+            volume = 100 * min(self.mav) / self.volume
 
         return "%s->%s (%s-%s, owlt:%s) [vol:%d]" % (self.frm, self.to, self.start, end,
                                                 self.owlt, volume)
@@ -709,9 +709,7 @@ def candidate_routes(curr_time, curr_node, contact_plan, bundle, routes,
                 min_succ_stop_time = min(successor.end, min_succ_stop_time)  # 21
             effective_stop_time = min(contact.end, min_succ_stop_time)  # 22
             effective_duration = effective_stop_time - effective_start_time  # 23
-            # TODO Update the below to use MAV
-            # contact.effective_volume_limit = min(effective_duration * contact.rate,
-            #                                      contact.mav[bundle.priority])
+
             # The effective volume limit is either the amount of data that can be
             # transferred between the contact's earliest start time and its latest end
             # time, or the "known" volume on the contact (not considering timings).
@@ -719,7 +717,7 @@ def candidate_routes(curr_time, curr_node, contact_plan, bundle, routes,
             # the contact volume may be less than the best case "real" scenario,
             # so accept that as our "limit"
             contact.effective_volume_limit = min(
-                effective_duration * contact.rate, contact.volume)  # line 24
+                effective_duration * contact.rate, contact.mav[bundle.priority])  # line 24
             if contact.effective_volume_limit < min_effective_volume_limit:
                 min_effective_volume_limit = contact.effective_volume_limit  # line 25
 

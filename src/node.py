@@ -242,7 +242,7 @@ class Node:
                 continue
 
             # If, for some reason, the bundle does not have an assigned route,
-            # return to the buffer so that it can be reassigned (or dropped)
+            # return to the buffer so that it can be assigned (or dropped)
             if not bundle.route:
                 self._return_bundle_to_buffer(bundle)
                 continue
@@ -488,7 +488,8 @@ class Node:
             print(f"returned bundle to Buffer on {self.uid}")
 
     @staticmethod
-    def _contact_resource_update(contacts: list, data_size: int | float) -> None:
+    def _contact_resource_update(contacts: list, size: int | float, priority: int = 0) \
+            -> None:
         """Consume or replenish resources on a Contact.
 
         Contact volume is reduced (if data is being sent) or increased (if data is no
@@ -496,10 +497,33 @@ class Node:
 
         Args:
             contact: ID of the contact on which resources should be updated
-            data_size: Volume of the data being transferred over the contact
+            size: Volume of the data being transferred over the contact
         """
+        if priority not in [0, 1, 2]:
+            raise ValueError("Bundle priority not defined in valid range")
+
+        over_subscribed = []
         for contact in contacts:
-            contact.volume -= data_size
+            for p in range(priority+1):
+                contact.mav[p] -= size
+
+                if min(contact.mav) < 0:
+                    over_subscribed.append(contact)
+
+        # TODO Check to see if any of the route's contacts are now over-subscribed. If
+        #  so, we should extract the lowest priority bundles that currently use those
+        #  contacts and re-route them. To do this, we need to evaluate the bundles that
+        #  have been assigned to a route, LP first, and then if they use the
+        #  over-subscribed contact, add them back into the buffer and re-assign based
+        #  on the latest knowledge. What this fails to do is be optimal in terms of
+        #  which contacts are addressed first. E.g. say hops 2 & 3 are over-subscribed.
+        #  It may be the case that the first bundle we evaluate uses hop 2,
+        #  so we re-assign that, but then the next bundle actually uses hops 2 & 3 such
+        #  that we only actually needed to re-route that one. In addition to this,
+        #  by working purely backwards like this, we're assigning lower-priority
+        #  bundles ahead of higher ones, potentially, so really we should extract ALL
+        #  of the bundles necessary to ensure no over-subscribed contacts and,
+        #  then assign them all, HP first.
 
     def _merge_task_tables(self, tt_other):
         """
