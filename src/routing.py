@@ -140,6 +140,8 @@ class Route:
                     min_succ_stop_time = successor.end
             effective_stop_time = min(c.end, min_succ_stop_time)
             effective_duration = effective_stop_time - effective_start_time
+            # TODO c.volume is not traditionally updated with the assignment of
+            #  bundles, so this therefore isn't normally dynamic in that sense.
             c.effective_volume_limit = min(effective_duration * c.rate, c.volume)
             if c.effective_volume_limit < min_effective_volume_limit:
                 min_effective_volume_limit = c.effective_volume_limit
@@ -609,18 +611,6 @@ def candidate_routes(curr_time, curr_node, contact_plan, bundle, routes,
         # "next node" and, if there's already enough bundles in the queue to fill up
         # the first hop's capacity (assuming other, earlier contacts with this first
         # hop's recipient), we can ignore this node.
-        # FIXME I don't think we really need this, given how we're handling the contact
-        #  volumes. When we assign a bundle to a route, we deplete the contact's volume
-        #  such that we already know which contacts are "full". of course, this doesn't
-        #  account for actual arrival times, so this is still of value, but since this
-        #  is only looking at the first hop, it should work.
-        #  What is this actually doing? It's saying "for the first hop in this route,
-        #  do we already have more bundles in the recipient's OBQ such that we can't
-        #  fit any more over this contact? If not, then we're ok to consider this as a
-        #  candidate, otherwise, we won't. So, I still think it's valid because it
-        #  dives a little deeper than just the pure volume check. Still not convinced
-        #  though, since the OBQ will be continuously updated during a contact,
-        #  which is when this really comes into play.
         adjusted_start_time = max(curr_time, route.hops[0].start)  # line 4
 
         # Applicable Backlog Volume (for priority p), i.e. this is the volume of data
@@ -646,9 +636,9 @@ def candidate_routes(curr_time, curr_node, contact_plan, bundle, routes,
                     # What is the total backlog "relief"
                     applicable_backlog_relief += applicable_prior_contact_volume  # line 7
         residual_backlog = max(0, applicable_backlog_p - applicable_backlog_relief)
-        backlog_lien = residual_backlog / route.hops[0].rate
-        early_tx_opportunity = adjusted_start_time + backlog_lien
-        if early_tx_opportunity > route.hops[0].end:
+        backlog_lien = residual_backlog / route.hops[0].rate  # line 8
+        early_tx_opportunity = adjusted_start_time + backlog_lien  # line 9
+        if early_tx_opportunity > route.hops[0].end:  # line 10
             if debug:
                 print(
                     "not candidate: earlier transmission opportunity is later than end of 1st contact")
@@ -660,56 +650,83 @@ def candidate_routes(curr_time, curr_node, contact_plan, bundle, routes,
         # to transfer this bundle, check that this route is feasible.
 
         # 3.2.6.9 e) use eto to compute projected arrival time
+        # Basically, calculates, for each hop in the route, the contact's timings for
+        # when data can leave one node and arrive at the next, based on the arrival at
+        # the previous node and OWLT. It does not consider already-assigned bundles on
+        # each contact (apart from the first one, from the ETO calculation above),
+        # but simply looks at arrival and departure times.
         # TODO: This assumes contacts beyond the first hop are fully available,
         #   i.e. no consideration of remaining volume on these contacts.
-        prev_last_byte_arr_time = 0
+        prev_last_byte_arr_time = 0  #
         for contact in route.hops:
             if contact == route.hops[0]:
-                contact.first_byte_tx_time = early_tx_opportunity
+                # This is different in the route volume property calculation, where it
+                # just uses the contact start time as the ETO. However, if we used the
+                # actual time as the "prev_last_byte_arr_time" variable, this would
+                # continuously update to match this. The issue is we're not providing
+                # the current time as input to the Route Volume calculation...
+                contact.first_byte_tx_time = early_tx_opportunity  # line 12
             else:
+                # line 14
                 contact.first_byte_tx_time = max(contact.start, prev_last_byte_arr_time)
+            # In the route volume calculation, this assumes a 0-size bundle, so that we
+            # get the FULL available volume, rather than being bundle-size specific.
+            # This is fine though, because all we need to do is see if the volume is
+            # equal to or larger than the bundle size.
             bundle_tx_time = bundle.size / contact.rate
-            contact.last_byte_tx_time = contact.first_byte_tx_time + bundle_tx_time
-            contact.last_byte_arr_time = contact.last_byte_tx_time + contact.owlt
+            contact.last_byte_tx_time = contact.first_byte_tx_time + bundle_tx_time  # 15
+            contact.last_byte_arr_time = contact.last_byte_tx_time + contact.owlt  # 16
             prev_last_byte_arr_time = contact.last_byte_arr_time
-        proj_arr_time = prev_last_byte_arr_time
-        if proj_arr_time > bundle.deadline:
+        # This is not done in the Route volume calculation, however does that matter?
+        # This gives us the PAT, i.e. the time at which the whole bundle finishes
+        # arriving at the destination. I don't see why we can't have something like
+        # this included. Again, we're not considering any queued traffic in the system
+        # in our Route volume computation, so our PAT would not be accurate.
+        proj_arr_time = prev_last_byte_arr_time  # lin 17
+        if proj_arr_time > bundle.deadline:  # 18
             if debug:
                 print("not candidate: projected arrival time is later than deadline")
             continue
 
         # 3.2.6.9 f) if route depleted for bundle priority P, ignore
-        # reserved_volume_p = 0  # todo: sum of al bundle.evc with p or higher that were forwarded via this route
+        # todo: sum of al bundle.evc with p or higher that were forwarded via this route
+        # reserved_volume_p = 0
         min_effective_volume_limit = sys.maxsize
         for contact in route.hops:
             # if reserved_volume_p >= contact.volume:
-            # TODO Remove this as it repeats from above
-            if contact.volume < bundle.size:  # ***CHANGED***
-                if debug:
-                    print("not candidate: route depleted for bundle priority")
-                continue
+            #     if debug:
+            #         print("not candidate: route depleted for bundle priority")
+            #     continue
 
-            # This checks to make sure a later contact isn't ending before we've had an
-            # opportunity to send over an earlier contact. E.g. if the first contact is
-            # from time 0-5, but the second is from 2-4, then this route isn't feasibly
+            # This checks to make sure this contact isn't ending before we've had an
+            # opportunity to send over the previous contact. E.g. if the first contact is
+            # from time 0-5, but the second is from 2-4, then this route isn't feasible
             # if we only have the final time period in the original contact remaining.
             effective_start_time = contact.first_byte_tx_time
             min_succ_stop_time = sys.maxsize
             index = route.hops.index(contact)
             for successor in route.hops[index:]:
-                min_succ_stop_time = min(successor.end, min_succ_stop_time)
-            effective_stop_time = min(contact.end, min_succ_stop_time)
-            effective_duration = effective_stop_time - effective_start_time
+                min_succ_stop_time = min(successor.end, min_succ_stop_time)  # 21
+            effective_stop_time = min(contact.end, min_succ_stop_time)  # 22
+            effective_duration = effective_stop_time - effective_start_time  # 23
             # TODO Update the below to use MAV
             # contact.effective_volume_limit = min(effective_duration * contact.rate,
             #                                      contact.mav[bundle.priority])
-            contact.effective_volume_limit = min(effective_duration * contact.rate,
-                                                 contact.volume)
+            # The effective volume limit is either the amount of data that can be
+            # transferred between the contact's earliest start time and its latest end
+            # time, or the "known" volume on the contact (not considering timings).
+            # E.g. if we've almost filled a contact with bundle assignments,
+            # the contact volume may be less than the best case "real" scenario,
+            # so accept that as our "limit"
+            contact.effective_volume_limit = min(
+                effective_duration * contact.rate, contact.volume)  # line 24
             if contact.effective_volume_limit < min_effective_volume_limit:
-                min_effective_volume_limit = contact.effective_volume_limit
+                min_effective_volume_limit = contact.effective_volume_limit  # line 25
 
+        # Make sure this "on-the-fly" route volume calculation is sufficient to support
+        # the bundle we're  trying to send
         route_volume_limit = min_effective_volume_limit
-        # TODO Why not the Bundle volume size?
+        # TODO Why not the minimum size that a bundle can be when fragmented (100bits?)
         if route_volume_limit <= 0:
             if debug:
                 print("not candidate: route is depleted for the bundle priority")
@@ -717,7 +734,9 @@ def candidate_routes(curr_time, curr_node, contact_plan, bundle, routes,
 
         # 3.2.6.9 g) if frag is False and route rvl(P) < bundle.evc, ignore
         if not bundle.fragment:
-            if route_volume_limit < bundle.evc:
+            # TODO switch back to EVC when we incorporate that into it, but need to
+            #  flow that through to volume demand
+            if route_volume_limit < bundle.size:  # bundle.evc:
                 if debug:
                     print(
                         "not candidate: route volume limit is less than bundle evc and no fragment allowed")
