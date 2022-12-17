@@ -405,7 +405,7 @@ class Node:
                     hops = []
                     for hop in b.route:
                         hops.append(self._contact_plan_dict[hop])
-                    self._contact_resource_update(hops, b.size)
+                    self._contact_resource_update(hops, b.size, b.priority)
                     continue
                 else:
                     if DEBUG:
@@ -457,7 +457,7 @@ class Node:
                 self._outbound_queue_all.append(b)
 
                 # Update the resources on the selected route
-                self._contact_resource_update(route.hops, b.size)
+                self._contact_resource_update(route.hops, b.size, b.priority)
 
                 # Update the "assigned route" argument on the bundle object
                 b.route = [contact.uid for contact in route.hops]
@@ -486,7 +486,7 @@ class Node:
             hops = []
             for hop in bundle.route:
                 hops.append(self._contact_plan_dict[hop])
-            self._contact_resource_update(hops, -bundle.size)
+            self._contact_resource_update(hops, -bundle.size, bundle.priority)
         self.buffer.append(bundle)
         if DEBUG:
             print(f"returned bundle to Buffer on {self.uid}")
@@ -505,17 +505,17 @@ class Node:
         if priority not in [0, 1, 2]:
             raise ValueError("Bundle priority not defined in valid range")
 
-        overbooked_contacts = set()
+        overbooked_contacts = []
         for contact in contacts:
             for p in range(priority+1):
                 contact.mav[p] -= size
 
-                if min(contact.mav) < 0:
-                    overbooked_contacts.add(contact)
+            if min(contact.mav) < 0 and contact not in overbooked_contacts:
+                overbooked_contacts.append(contact)
 
         if not overbooked_contacts:
             return
-        self._handle_contact_over_booking(list(overbooked_contacts))
+        self._handle_contact_over_booking(overbooked_contacts)
 
     def _handle_contact_over_booking(self, overbooked_contacts: list) -> None:
         """Return bundles to the buffer until no over-booked contacts.
@@ -535,7 +535,7 @@ class Node:
         while any([min(c.mav) < 0 for c in overbooked_contacts]):
             bundle = self._outbound_queue_all.pop()
             if set(bundle.route) & set([x.uid for x in overbooked_contacts]):
-                self.outbound_queues[bundle.route.hops[0].to].remove(bundle)
+                self.outbound_queues[self._contact_plan_dict[bundle.route[0]].to].remove(bundle)
                 self._return_bundle_to_buffer(bundle)
             else:
                 return_to_obq.append(bundle)

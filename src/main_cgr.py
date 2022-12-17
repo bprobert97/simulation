@@ -7,6 +7,7 @@ from main import create_route_tables
 from node import Node
 from routing import Contact, cgr_yens
 from bundles import Bundle, Buffer
+from misc import cp_load
 
 
 SCHEDULER_BUFFER_CAPACITY = 1000
@@ -22,30 +23,6 @@ SCHEDULER_ID = 0
 TARGET_ID_BASE = 3000
 SATELLITE_ID_BASE = 2000
 GATEWAY_ID_BASE = 1000
-
-
-def cp_load(file_name, max_contacts=None):
-	__contact_plan = []
-	nodes = set()
-	with open(file_name, 'r') as cf:
-		for contact in cf.readlines():
-			if contact[0] == '#':
-				continue
-			if not contact.startswith('a contact'):
-				continue
-
-			fields = contact.split(' ')[2:]  # ignore "a contact"
-			start, end, frm, to, rate, owlt = map(int, fields)
-			nodes.add(frm)
-			nodes.add(to)
-			__contact_plan.append(
-				Contact(start=start, end=end, frm=frm, to=to, rate=rate, owlt=owlt))
-			if len(__contact_plan) == max_contacts:
-				break
-
-	print('Load contact plan: %s contacts were read.' % len(__contact_plan))
-	print(__contact_plan)
-	return __contact_plan
 
 
 def init_nodes(nodes, cp):

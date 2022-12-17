@@ -79,7 +79,7 @@ class Bundle:
 	"""
 	src: int
 	dst: int
-	target_id: int = None
+	target_id: int = 0
 	created_at: int = 0
 	size: int = 1
 	deadline: int = 1000

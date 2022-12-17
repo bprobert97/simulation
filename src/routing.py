@@ -621,7 +621,8 @@ def candidate_routes(curr_time, curr_node, contact_plan, bundle, routes,
         #  such, this is something that needs to be continuously updated based on the
         #  assignment of bundles.
         if obq:
-            applicable_backlog_p = sum(b.size for b in obq[route.next_node])
+            applicable_backlog_p = sum(
+                b.size for b in obq[route.next_node] if b.priority >= bundle.priority)
         else:
             applicable_backlog_p = 0
 

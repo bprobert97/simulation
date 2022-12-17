@@ -1,0 +1,7 @@
+# a contact +<start> +<end> <from> <to> <rate> <range>
+# A-B 00-60
+a contact +0000005 +000007 01 02 1 1
+# B-C 00-60
+a contact +0000010 +0000013 02 03 1 1
+# A-C 00-60
+a contact +0000015 +0000019 01 03 1 1

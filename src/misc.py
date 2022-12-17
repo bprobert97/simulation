@@ -10,6 +10,8 @@ import numpy as np
 import time
 import pickle
 
+from routing import Contact
+
 
 R_E = 6371000.8
 MU_E = 3.986005e+14
@@ -556,3 +558,27 @@ def id_generator(size=12, chars=string.ascii_uppercase + string.digits):
         id_generator(size, chars)
     USED_IDS.add(id)
     return id
+
+
+def cp_load(file_name, max_contacts=None):
+    __contact_plan = []
+    nodes = set()
+    with open(file_name, 'r') as cf:
+        for contact in cf.readlines():
+            if contact[0] == '#':
+                continue
+            if not contact.startswith('a contact'):
+                continue
+
+            fields = contact.split(' ')[2:]  # ignore "a contact"
+            start, end, frm, to, rate, owlt = map(int, fields)
+            nodes.add(frm)
+            nodes.add(to)
+            __contact_plan.append(
+                Contact(start=start, end=end, frm=frm, to=to, rate=rate, owlt=owlt))
+            if len(__contact_plan) == max_contacts:
+                break
+
+    print('Load contact plan: %s contacts were read.' % len(__contact_plan))
+    print(__contact_plan)
+    return __contact_plan
