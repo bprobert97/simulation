@@ -470,6 +470,12 @@ class Node:
                           f" {self.uid}")
                 pub.sendMessage("bundle_dropped")
 
+        # Check for any over-booking of contacts and, if required, carry out the bundle
+        # assignment again for any bundles that have been put back into the Buffer
+        self._contact_over_booking()
+        if not self.buffer.is_empty():
+            self._bundle_assignment(t_now)
+
     def _return_outbound_queue_to_buffer(self, to):
         """Return the contents of the outbound queue to the buffer.
 
@@ -491,8 +497,8 @@ class Node:
         if DEBUG:
             print(f"returned bundle to Buffer on {self.uid}")
 
-    def _contact_resource_update(
-            self, contacts: list, size: int | float, priority: int = 0) -> None:
+    @staticmethod
+    def _contact_resource_update(contacts: list, size: int | float, priority: int = 0) -> None:
         """Consume or replenish resources on a Contact.
 
         Contact volume is reduced (if data is being sent) or increased (if data is no
@@ -505,19 +511,11 @@ class Node:
         if priority not in [0, 1, 2]:
             raise ValueError("Bundle priority not defined in valid range")
 
-        overbooked_contacts = []
         for contact in contacts:
             for p in range(priority+1):
                 contact.mav[p] -= size
 
-            if min(contact.mav) < 0 and contact not in overbooked_contacts:
-                overbooked_contacts.append(contact)
-
-        if not overbooked_contacts:
-            return
-        self._handle_contact_over_booking(overbooked_contacts)
-
-    def _handle_contact_over_booking(self, overbooked_contacts: list) -> None:
+    def _contact_over_booking(self) -> None:
         """Return bundles to the buffer until no over-booked contacts.
 
         While we're over-booked on at least one contact, pop bundles from the list of
@@ -526,10 +524,14 @@ class Node:
         resources on each of the contacts to which the bundle was assigned. Once no
         over-booked contacts exist, add the bundles that were popped, but not returned
         to the buffer, back in to the assigned list.
-
-        Args:
-            overbooked_contacts: List of Contact objects that are over-booked
         """
+        overbooked_contacts = []
+        for contact in self.contact_plan:
+            if min(contact.mav) < 0 and contact not in overbooked_contacts:
+                overbooked_contacts.append(contact)
+        if not overbooked_contacts:
+            return
+
         return_to_obq = []
         self._outbound_queue_all.sort()
         while any([min(c.mav) < 0 for c in overbooked_contacts]):
