@@ -24,6 +24,7 @@ class Request:
     data_volume: int = 1
     time_created: int = None
     __uid: str = field(init=False, default_factory=lambda: id_generator())
+    status: str = "initiated"
 
     def __post_init__(self):
         # Define a unique ID based on the time of request arrival and ID of the target
@@ -197,6 +198,7 @@ class Scheduler:
             # TODO add in some exception that handles a lack of feasible acquisition
             # print(f"No task was created for request {request.uid} as either acquisition "
             #       f"or delivery wasn't feasible")
+            request.status = "infeasible"
             pub.sendMessage("request_fail")
             return
 

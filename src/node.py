@@ -123,6 +123,7 @@ class Node:
             # delivery opportunity), add the task to the table. Else, that request
             # cannot be fulfilled so log something to that effect
             if task:
+                request.status = "scheduled"
                 self.task_table[task.uid] = task
                 self._task_table_updated = True
 

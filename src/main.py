@@ -260,6 +260,16 @@ if __name__ == "__main__":
 		[*satellites]
 	)
 
+	# TODO while this request wait time is based on the download capacity and
+	#  congestion values, this doesn't ensure we actually DO all of these. Indeed,
+	#  given a limited time horizon and TTL, many of these won't get completed,
+	#  such that we're going to be way under our congestion-level. I don't think
+	#  there's an easy way to do this, in terms of request arrival being the driver,
+	#  since it could be the case whereby ALL of the requests that come in are for
+	#  targets that don't have a feasible solution. We can't just keep adding requests
+	#  as we'll never reach our preferred level of congestion. If we just increase the
+	#  TTL and make sure that the whole target set is serviced on a fairly regular
+	#  basis, we should be able to ensure execution.
 	request_arrival_wait_time = get_request_inter_arrival_time(
 			sim_duration,
 			download_capacity,
@@ -300,7 +310,7 @@ if __name__ == "__main__":
 		#  We could actually have something that watches our Route Tables and triggers
 		#  the Route Discovery whenever we drop below a certain number of good options
 
-	analytics = init_analytics()
+	analytics = init_analytics(6000, 6000)
 	env.run(until=sim_duration)
 	# cProfile.run('env.run(until=sim_duration)')
 
@@ -319,4 +329,5 @@ if __name__ == "__main__":
 	print("*** PERFORMANCE DATA ***")
 	print(f"The average bundle latency is {analytics.latency_ave}")
 	print(f"The bundle latency Std. Dev. is {analytics.latency_stdev}")
+	print('')
 

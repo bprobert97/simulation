@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-
+import sys
 from statistics import mean, stdev
 
 
 class Analytics:
-	def __init__(self):
-		self.requests = []
+	def __init__(self, warm_up=0, cool_down=sys.maxsize):
+		self.warm_up = warm_up
+		self.cool_down = cool_down
+		self.requests = {}
 		self.requests_submitted = 0
 		self.requests_failed = 0
 
@@ -36,7 +38,7 @@ class Analytics:
 		return stdev(self.latencies)
 
 	def submit_request(self, r):
-		self.requests.append(r)
+		self.requests[r.uid] = r
 		self.requests_submitted += 1
 
 	def fail_request(self):
