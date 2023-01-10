@@ -249,6 +249,65 @@ def update_contact_endpoints(cp, gateways):
 		if contact.to in gateways:
 			contact.to_eid = ENDPOINT_ID
 
+	return cp
+
+
+def build_contact_plan(ins, sats, gws, tgts):
+	rates = get_data_rate_pairs(
+		[*sats],
+		[*gws],
+		ins.satellites.rate_isl,
+		ins.satellites.rate_s2g,
+		ins.gateways.rate
+	)
+
+	# Get Contact Plan from the relative mobility between satellites, targets (sources)
+	# and gateways (sinks)
+	cp = review_contacts(times, {**sats, **tgts, **gws}, sats, gws, tgts, rates)
+
+	# Add a permanent contact between the MOC and the Gateways so that they can always
+	# be up-to-date in terms of the Task Table
+	for g_uid, g in gws.items():
+		# TODO Fix how we're defining the EIDs here, hardcoding isn't good
+		cp.insert(
+			0,
+			Contact(
+				SCHEDULER_ID, g_uid, ENDPOINT_ID, 0, ins.simulation.duration,
+				sys.maxsize
+			)
+		)
+
+		cp.insert(
+			0,
+			Contact(
+				g_uid, SCHEDULER_ID, SCHEDULER_ID, 0, ins.simulation.duration,
+				sys.maxsize
+			)
+		)
+
+	# FIXME Urghhh
+	cp = update_contact_endpoints(cp, [*gws])
+
+	return cp
+
+
+def build_moc(cp, cpt, sats, gws):
+	# Instantiate the Mission Operations Center, i.e. the Node at which requests arrive
+	# and then set up each of the remote nodes (including both satellites and gateways).
+	moc = Node(
+		SCHEDULER_ID,
+		buffer=Buffer(SCHEDULER_BUFFER_CAPACITY),
+		contact_plan=deepcopy(cp),
+		contact_plan_targets=deepcopy(cpt),
+		scheduler=Scheduler(),
+		outbound_queue={x: [] for x in {**sats, **gws}},
+		request_duplication=False
+	)
+	moc.scheduler.parent = moc
+	pub.subscribe(moc.bundle_receive, str(SCHEDULER_ID) + "bundle")
+
+	return moc
+
 
 if __name__ == "__main__":
 	"""
@@ -280,71 +339,17 @@ if __name__ == "__main__":
 	)
 	print("Node propagation complete")
 
-	rates = get_data_rate_pairs(
-		[*satellites],
-		[*gateways],
-		inputs.satellites.rate_isl,
-		inputs.satellites.rate_s2g,
-		inputs.gateways.rate
-	)
-
-	# Get Contact Plan from the relative mobility between satellites, targets (sources)
-	# and gateways (sinks)
-	cp = review_contacts(
-		times,
-		{**satellites, **targets, **gateways},
-		satellites,
-		gateways,
-		targets,
-		rates
-	)
-	print("Contact Plans built")
-
-	# ****************** SCHEDULING SPECIFIC PREPARATION ******************
-	# Create a contact plan that ONLY has contacts with target nodes and a contact plan
-	# that ONLY has contacts NOT with target nodes. The target CP will be used to
-	# extend the non-target one during request processing, but since target nodes don't
-	# participate in routing, they slow down the route discovery process if considered.
-	cp_with_targets = [c for c in cp if c.to in [t for t in targets]]
-	cp = [c for c in cp if c.to not in [t for t in targets]]
-
-	# Add a permanent contact between the MOC and the Gateways so that they can always
-	# be up-to-date in terms of the Task Table
-	for g_uid, g in gateways.items():
-		# TODO Fix how we're defining the EIDs here, hardcoding isn't good
-		cp.insert(0, Contact(SCHEDULER_ID, g_uid, ENDPOINT_ID, 0, inputs.simulation.duration, sys.maxsize))
-		cp.insert(0, Contact(g_uid, SCHEDULER_ID, SCHEDULER_ID, 0, inputs.simulation.duration, sys.maxsize))
-
-	# Instantiate the Mission Operations Center, i.e. the Node at which requests arrive
-	# and then set up each of the remote nodes (including both satellites and gateways).
-	moc = Node(
-		SCHEDULER_ID,
-		buffer=Buffer(SCHEDULER_BUFFER_CAPACITY),
-		contact_plan=cp,
-		contact_plan_targets=cp_with_targets,
-		scheduler=Scheduler(),
-		outbound_queue={x: [] for x in {**satellites, **gateways}},
-		request_duplication=False
-	)
-	moc.scheduler.parent = moc
-	pub.subscribe(moc.bundle_receive, str(SCHEDULER_ID) + "bundle")
+	contact_plan_base = build_contact_plan(inputs, satellites, gateways, targets)
+	cp_wo_targets = [c for c in contact_plan_base if c.to not in [t for t in targets]]
+	cp_only_targets = [c for c in contact_plan_base if c.to in [t for t in targets]]
+	print("Contact plans built")
 
 	download_capacity = get_download_capacity(
-		cp,
+		cp_wo_targets,
 		[*gateways],
 		[*satellites]
 	)
 
-	# TODO while this request wait time is based on the download capacity and
-	#  congestion values, this doesn't ensure we actually DO all of these. Indeed,
-	#  given a limited time horizon and TTL, many of these won't get completed,
-	#  such that we're going to be way under our congestion-level. I don't think
-	#  there's an easy way to do this, in terms of request arrival being the driver,
-	#  since it could be the case whereby ALL of the requests that come in are for
-	#  targets that don't have a feasible solution. We can't just keep adding requests
-	#  as we'll never reach our preferred level of congestion. If we just increase the
-	#  TTL and make sure that the whole target set is serviced on a fairly regular
-	#  basis, we should be able to ensure execution.
 	request_arrival_wait_time = get_request_inter_arrival_time(
 			inputs.simulation.duration,
 			download_capacity,
@@ -352,13 +357,17 @@ if __name__ == "__main__":
 			inputs.traffic.size
 		)
 
-	# FIXME Urghhh
-	update_contact_endpoints(cp, [*gateways])
+	moc = build_moc(
+		cp_wo_targets,
+		cp_only_targets,
+		satellites,
+		gateways
+	)
 
 	nodes = init_space_nodes(
 		{**satellites,  **gateways},
-		cp,
-		cp_with_targets,
+		cp_wo_targets,
+		cp_only_targets,
 		inputs.traffic.msr
 	)
 
@@ -413,10 +422,10 @@ if __name__ == "__main__":
 		#  We could actually have something that watches our Route Tables and triggers
 		#  the Route Discovery whenever we drop below a certain number of good options
 
-	# env.run(until=inputs.simulation.duration - (cooldown/2))
-	cProfile.run('env.run(until=inputs.simulation.duration-(cool_down/2))')
+	env.run(until=inputs.simulation.duration - (cool_down / 2))
+	# cProfile.run('env.run(until=inputs.simulation.duration-(cool_down/2))')
 
-	with open("results//results", "wb") as file:
+	with open(f"results//results_{inputs.traffic.congestion}", "wb") as file:
 		pickle.dump(analytics_, file)
 
 	print(f"Total download capacity was {download_capacity} units")
