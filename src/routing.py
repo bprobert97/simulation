@@ -3,15 +3,16 @@
 
 import sys
 from dataclasses import dataclass, field
-from typing import List
+from typing import List, Dict
 
 
 @dataclass
 class Contact:
     frm: int
     to: int
-    start: int | float
-    end: int | float
+    to_eid: int = None
+    start: int | float = 0.0
+    end: int | float = sys.maxsize
     rate: int | float = 1
     confidence: float = 1.0
     owlt: float = 0.0
@@ -39,6 +40,9 @@ class Contact:
         
         # Priority-specific volume. Index represents priority level, so mav[0] = "bulk"
         self.mav = [self.volume, self.volume, self.volume]
+
+        if not self.to_eid:
+            self.to_eid = self.to
 
     @property
     def uid(self):
@@ -101,6 +105,7 @@ class Route:
         :param contact: Contact object
         """
         self._hops = []
+        self.volume = None
         self.append(contact)
 
     @property
@@ -118,8 +123,10 @@ class Route:
             avail *= x.confidence
         return avail
 
-    @property
-    def volume(self):
+    # TODO move this code out of the volume getter so that we're not having to execute
+    #  EVERY time we want the volume. The volume only needs recalculating when we
+    #  append a contact, so we can just refresh it then (and if we pop the root contact)
+    def refresh_metrics(self):
         prev_last_byte_arr_time = 0
         min_effective_volume_limit = sys.maxsize
         for c in self.hops:
@@ -145,7 +152,7 @@ class Route:
             c.effective_volume_limit = min(effective_duration * c.rate, c.volume)
             if c.effective_volume_limit < min_effective_volume_limit:
                 min_effective_volume_limit = c.effective_volume_limit
-        return min_effective_volume_limit
+        self.volume = min_effective_volume_limit
 
     @property
     def best_delivery_time(self):
@@ -188,6 +195,7 @@ class Route:
         :return:
         """
         self._hops.append(contact)
+        self.refresh_metrics()
 
     # OPERATOR OVERLOAD FOR SELECTION #
     # Less than = this route is better than the other (less costly)
@@ -222,13 +230,20 @@ class Route:
                    self.confidence
                )
 
+    # TODO add an __add__ dunder method as an alt to "append". This requires
+    #  us to consider the first route as the "parent" and should be passed in as an arg.
+    # def __add__(self, contact)
+    #     return Route(contact, self)
 
-def cgr_yens(src, dest, t_now, num_routes, contact_plan):
-    """
-    Find the k shortest paths between nodes s & d in the graph, g
-    :param dest: destination node
-    :param num_routes: number of shortest paths to return
-    :return:
+
+def cgr_yens(
+        src: int,
+        dest: int,
+        contact_plan: List[Contact],
+        t_now: float = 0.0,
+        end_time: int = sys.maxsize
+) -> List[Route]:
+    """Find the k shortest paths between nodes s & d in the graph, g.
     """
     # TODO Change this from finding the k-shortest routes, to simply finding routes
     #  until we have enough resources to send all the bundles with this destination
@@ -236,7 +251,7 @@ def cgr_yens(src, dest, t_now, num_routes, contact_plan):
 
     # Root contact is the connection to self that acts as the source vertex in the
     # Contact Graph
-    root = Contact(src, src, t_now, sys.maxsize, sys.maxsize)
+    root = Contact(src, src, src, t_now, sys.maxsize, sys.maxsize)
     root.arrival_time = t_now
 
     # reset contacts
@@ -250,10 +265,12 @@ def cgr_yens(src, dest, t_now, num_routes, contact_plan):
     if route is None:
         return []
     routes = [route]
+    latest_route_end = route.hops[-1].end
 
     [r.hops.insert(0, root) for r in routes]
 
-    for k in range(num_routes - len(routes)):
+    # for k in range(num_routes - len(routes)):
+    while latest_route_end < end_time:
         # For each contact in the most recently identified (k-1'th) route (apart
         # from the last contact
         for spur_contact in routes[-1].hops[:-1]:
@@ -315,11 +332,15 @@ def cgr_yens(src, dest, t_now, num_routes, contact_plan):
         potential_routes.sort()
 
         # add best route to routes
-        routes.append(potential_routes.pop(0))
+        best_route = potential_routes.pop(0)
+        if latest_route_end < best_route.hops[-1].end:
+            latest_route_end = best_route.hops[-1].end
+        routes.append(best_route)
 
     # remove root_contact from hops
     for route in routes:
         route.hops.pop(0)
+        route.refresh_metrics()
 
     return routes
 
@@ -333,6 +354,11 @@ def cgr_dijkstra(root_contact, destination, contact_plan, deadline=sys.maxsize, 
     #  long time horizon with many contacts, this could become unnecessarily large.
     # Set of contacts that have been visited during the contact plan search
     # unvisited = [c.uid for c in self.contacts]
+
+    # If there are no contacts from our root (i.e. there's nowhere for us to go), exit
+    if root_contact.to not in [c.to for c in contact_plan]:
+        return
+
     [c.clear_dijkstra_area() for c in contact_plan if c is not root_contact]
 
     contact_plan_hash = {}
@@ -355,6 +381,10 @@ def cgr_dijkstra(root_contact, destination, contact_plan, deadline=sys.maxsize, 
         root_contact.visited_nodes.append(root_contact.to)
 
     while True:
+        try:
+            contact_plan_hash[current.to]
+        except:
+            print(' ')
         for contact in contact_plan_hash[current.to]:
             if contact in current.suppressed_next_hop:
                 continue
@@ -369,7 +399,7 @@ def cgr_dijkstra(root_contact, destination, contact_plan, deadline=sys.maxsize, 
                 continue
 
             # TODO This is new, triple check I'm right here
-            transfer_time = contact.rate * size
+            transfer_time = size / contact.rate
             if contact.end <= current.arrival_time + transfer_time:
                 continue
 
@@ -407,7 +437,8 @@ def cgr_dijkstra(root_contact, destination, contact_plan, deadline=sys.maxsize, 
                 contact.visited_nodes.append(contact.to)
 
                 # Mark if destination reached
-                if contact.to == destination and contact.arrival_time < earliest_fin_arr_t:
+                # if contact.to == destination and contact.arrival_time < earliest_fin_arr_t:
+                if contact.to_eid == destination and contact.arrival_time < earliest_fin_arr_t:
                     earliest_fin_arr_t = contact.arrival_time
                     final_contact = contact
 
@@ -561,7 +592,7 @@ def contact_selection(contact_plan, bdt, deadline):
 def candidate_routes(curr_time, curr_node, contact_plan, bundle, routes,
                      excluded_nodes, obq=None, debug=False):
 
-    return_to_sender = False
+    return_to_sender = True
     candidate_routes = []
 
     for route in routes:

@@ -9,7 +9,7 @@ from pubsub import pub
 
 from scheduling import Scheduler, Request, Task
 from bundles import Buffer, Bundle
-from routing import candidate_routes
+from routing import candidate_routes, cgr_yens
 from misc import id_generator
 
 
@@ -31,9 +31,10 @@ class Node:
         msr: Flag indicating use of Moderate Source Routing, if possible
     """
     uid: int
+    eid: int = None
     scheduler: Scheduler = None
     buffer: Buffer = field(default_factory=lambda: Buffer())
-    outbound_queues: Dict = field(default_factory=dict)
+    outbound_queue: Dict = field(default_factory=dict)
     contact_plan: List = field(default_factory=list)
     contact_plan_targets: List = field(default_factory=list)
     request_duplication: bool = False
@@ -44,10 +45,11 @@ class Node:
     route_table: Dict = field(init=False, default_factory=dict)
     request_queue: List = field(init=False, default_factory=list)
     handled_requests: List = field(init=False, default_factory=list)
+    failed_requests: List = field(init=False, default_factory=list)
     task_table: Dict = field(init=False, default_factory=dict)
     drop_list: List = field(init=False, default_factory=list)
     delivered_bundles: List = field(init=False, default_factory=list)
-    _task_table_updated: bool = field(init=False, default=False)
+    _task_table_updates: Dict = field(init=False, default_factory=dict)
     _targets: Set = field(init=False, default_factory=set)
     _contact_plan_self: List = field(init=False, default_factory=list)
     _contact_plan_dict: Dict = field(init=False, default_factory=dict)
@@ -55,9 +57,15 @@ class Node:
     _outbound_queue_all: List = field(init=False, default_factory=list)
 
     def __post_init__(self) -> None:
+        if not self.eid:
+            self.eid = self.uid
+
         self.update_contact_plan(self.contact_plan, self.contact_plan_targets)
         if self.scheduler:
             self.scheduler.parent = self
+
+        # TODO If the OBQ gets updated after initiation, this will get missed.
+        self._task_table_updates = {n: [] for n in self.outbound_queue}
 
     def update_contact_plan(self, cp=None, cp_targets=None):
         if cp:
@@ -79,53 +87,70 @@ class Node:
         self._contact_plan_self.sort()
 
     # *** REQUEST HANDLING (I.E. SCHEDULING) ***
-    def request_received(self, request, t_now):
+    def request_received(self, request):
         """
-        When a request is received, it gets added to the request queue
+        When a request is received, it gets added to the request queue.
         """
         self.request_queue.append(request)
 
-        # TODO this will trigger the request processing immediately having received a
-        #  request, however we may want to set this process to be periodic
-        self._process_requests(t_now)
+    def process_all_requests(self, curr_time):
+        """Process each request in the queue, by earliest-arrival first.
 
-    def _process_requests(self, curr_time):
-        """
-        Process each request in the queue, by identifying the assignee-target contact
-        that will collect the payload, creating a Task for this and adding it to the table
+        By identifying the assignee-target contact that will collect the payload,
+        creating a Task for this and adding it to the table
         :return:
         """
         while self.request_queue:
             request = self.request_queue.pop(0)
-            self.handled_requests.append(request)
+            self.process_request(request, curr_time)
 
-            # Check to see if any existing tasks exist that could service this request.
-            if self.request_duplication:
-                task_ = self._task_already_servicing_request(request)
-                if task_:
-                    task_.request_ids.append(request.uid)
-                    # TODO Note that this won't necessarily be shared throughout the
-                    #  network, since it's not really an "update to the task. Tbh,
-                    #  it won't matter that much, since the remote node doesn't need to
-                    #  know details about the request(s) its servicing, but could be
-                    #  good to ensure it's shared
-                    pub.sendMessage("request_duplicated")
-                    continue
+    def process_request(self, request: Request, curr_time: int | float):
+        """Process a single request resulting in a Task being added to the task table.
 
-            task = self.scheduler.schedule_task(
-                request,
-                curr_time,
-                self.contact_plan,
-                self.contact_plan_targets
-            )
+        In the event that a request cannot be fulfilled, it gets added to the failed list
+        Args:
+            :param request: Request object
+            :param curr_time: Current time
+        """
+        self.handled_requests.append(request)
 
-            # If a task has been created (i.e. there is a feasible acquisition and
-            # delivery opportunity), add the task to the table. Else, that request
-            # cannot be fulfilled so log something to that effect
-            if task:
-                request.status = "scheduled"
-                self.task_table[task.uid] = task
-                self._task_table_updated = True
+        # Check to see if any existing tasks exist that could service this request.
+        if self.request_duplication:
+            task_ = self._task_already_servicing_request(request)
+            if task_:
+                task_.request_ids.append(request.uid)
+                # TODO Note that this won't necessarily be shared throughout the
+                #  network, since it's not really an "update to the task. Tbh,
+                #  it won't matter that much, since the remote node doesn't need to
+                #  know details about the request(s) its servicing, but could be
+                #  good to ensure it's shared
+                pub.sendMessage("request_duplicated")
+                return True
+
+        task = self.scheduler.schedule_task(
+            request,
+            curr_time,
+            self.contact_plan,
+            self.contact_plan_targets
+        )
+
+        # If a task has been created (i.e. the request can be fulfilled), add the task to
+        # the table. Else, that request cannot be fulfilled
+        if task:
+            request.status = "scheduled"
+            self.task_table[task.uid] = task
+            self._update_task_change_tracker(task.uid, [])
+            return True
+
+        # If no assignee has been identified, then it means there's no feasible way
+        # the data can be acquired and delivered that fulfills the requirements.
+        # TODO add in some exception that handles a lack of feasible acquisition
+        # print(f"No task was created for request {request.uid} as either acquisition "
+        #    f"or delivery wasn't feasible")
+        pub.sendMessage("request_fail")
+        request.status = "failed"
+        self.failed_requests.append(request)
+        return False
 
     def _task_already_servicing_request(self, request: Request) -> Task | None:
         """Returns True if the request is already handled by an existing Task.
@@ -169,30 +194,62 @@ class Node:
                 env.process(self._node_contact_procedure(env, next_contact))
 
     def _target_contact_procedure(self, t_now, target):
-        """
-        Procedure to follow if we're in contact w/ a Target node
+        """Procedure to follow if we're in contact w/ a Target node.
+
+        Essentially, we need to check whether there's a "pending" task for pickup from
+        the target with whom we're in contact and, if there's an assignee (and by
+        association a pick-up time) the ID matches ours
         """
         for task_id, task in self.task_table.items():
-            if task.pickup_time == t_now and task.target == target:
-                # If there's insufficient buffer capacity to complete the task,
-                # set the task to "redundant" so it can be rescheduled
-                if self.buffer.capacity_remaining < task.size:
-                    task.status = "redundant"
-                    continue
-                self._acquire_bundle(t_now, task)
+
+            # If the task's target is not the node we're in contact with, skip
+            if task.target != target:
+                continue
+
+            # If the task is not needing to be executed
+            if task.status != "pending":
+                continue
+
+            # If the task has been assigned to different node, skip
+            if task.assignee and task.assignee != self.uid:
+                continue
+
+            # If the task has a LATER scheduled pickup time, skip
+            if task.pickup_time and task.pickup_time > t_now:
+                continue
+
+            # If there's insufficient buffer capacity to complete the task, and the
+            # task has been scheduled to be acquired by us, at this time, set the task
+            # to "redundant" so it can be rescheduled. Otherwise, just skip so that it
+            # can perhaps be handled later, if still pending
+            # TODO Implement re-scheduling so that we can reassign this task to the
+            #  next best opportunity. Otherwise, we'll just wait until a viable
+            #  opportunity and complete it then.
+            if self.buffer.capacity_remaining < task.size:
+                # if task.assignee and task.assignee == self.uid and task.pickup_time and\
+                #         task.pickup_time == t_now:
+                #     task.status = "redundant"
+                continue
+
+            # Otherwise, pick up the bundle :)
+            self._acquire_bundle(t_now, task)
+            task.acquired(t_now, self.uid)
 
     def _acquire_bundle(self, t_now, task):
-        bundle_lifetime = min(task.deadline_delivery, t_now + task.lifetime)
+        bundle_deadline = t_now + task.lifetime
         bundle = Bundle(
             src=self.uid,
             dst=task.destination,
             target_id=task.target,
             size=task.size,
-            deadline=bundle_lifetime,
+            deadline=bundle_deadline,
             created_at=t_now,
             priority=task.priority,
             task_id=task.uid,
-            obey_route=self.msr
+            task=task,
+            obey_route=self.msr,
+            current=self.uid
+
         )
         self.buffer.append(bundle)
         if DEBUG:
@@ -200,7 +257,6 @@ class Node:
         if task.del_path and self.msr:
             bundle.route = task.del_path
         pub.sendMessage("bundle_acquired", b=bundle)
-        task.status = "acquired"
 
     def _node_contact_procedure(self, env, contact):
         """
@@ -214,30 +270,26 @@ class Node:
             # If the task table has been updated while we've been in this contact,
             # send that before sharing any more bundles as it may be of value to the
             # neighbour
-            if self._task_table_updated:
+            if self._task_table_updates[contact.to]:
                 env.process(self._task_table_send(
                         env,
                         contact.to,
                         contact.owlt,
+                        [t for t in self.task_table.values()
+                         if t.uid in self._task_table_updates[contact.to]]
                     )
                 )
-                # FIXME This will "switch off" the task table update flag for everyone,
-                #  so, e.g. if we're in contact with two nodes and one of them sends
-                #  through an update such that this flag goes true, if we then
-                #  immediately respond to that node with the updated TT, we'll not get
-                #  the trigger to send to the other neighbour.
-                self._task_table_updated = False
+                self._task_table_updates[contact.to] = []
                 yield env.timeout(0)
                 continue
 
             # If we don't have any bundles waiting in the current neighbour's outbound
             # queue, we can just wait a bit and try again later
-            if not self.outbound_queues[contact.to]:
+            if not self.outbound_queue[contact.to]:
                 yield env.timeout(self._outbound_repeat_interval)
                 continue
 
-            bundle = self.outbound_queues[contact.to].pop(0)
-            self._outbound_queue_all.remove(bundle)
+            bundle = self._pop_from_outbound_queue(contact.to)
             send_time = bundle.size / contact.rate
             # Check that there's a sufficient amount of time remaining in the contact
             if contact.end - env.now < send_time:
@@ -268,8 +320,8 @@ class Node:
             )
 
             if contact.to == bundle.dst and self.task_table:
-                self.task_table[bundle.task_id].status = "delivered"
-                self._task_table_updated = True
+                self.task_table[bundle.task_id].delivered(env.now, self.uid, contact.to)
+                self._update_task_change_tracker(bundle.task_id, [])
 
             # Wait until the bundle has been sent (note it may not have
             # been fully received at this time, due to the OWLT, but that's
@@ -287,18 +339,40 @@ class Node:
         """
         Carry out the handshake at the beginning of the contact,
         """
-        env.process(self._task_table_send(env, to, delay))
+        env.process(self._task_table_send(
+            env,
+            to,
+            delay,
+            [t for t in self.task_table.values() if t.uid in self._task_table_updates[to]]
+        ))
+        self._task_table_updates[to] = []
 
-    def _task_table_send(self, env, to, delay):
+    def _update_task_change_tracker(self, task_id: str, excluded: List[int]):
+        """Updates dict that tracks tasks that may have changed for each other node.
+
+        This method appends the task ID to each node in the dict to indicate something
+        has changed with this task such that it should be shared in case an update is
+        required on the other node.
+        """
+        for node, tasks in self._task_table_updates.items():
+            if node in excluded:
+                continue
+            tasks.append(task_id)
+
+    def _task_table_send(self, env, to, delay, updated_tasks):
         while True:
             yield env.timeout(delay)
             # Wait until the whole message has arrived and then invoke the "receive"
             # method on the receiving node
             pub.sendMessage(
-                str(to) + "bundle",
-                t_now=env.now, bundle=deepcopy(self.task_table), is_task_table=True
+                str(to) + "task_table",
+                task_table={t.uid: t for t in updated_tasks},
+                frm=self.uid
             )
             break
+
+    def task_table_receive(self, task_table, frm):
+        self._merge_task_tables(task_table, frm)
 
     def _bundle_send(self, env, bundle, to_node, delay):
         """
@@ -325,38 +399,37 @@ class Node:
             yield env.timeout(delay)
             pub.sendMessage(
                 str(to_node) + "bundle",
-                t_now=env.now, bundle=bundle, is_task_table=False
+                t_now=env.now, bundle=bundle
             )
 
             return
 
-    def bundle_receive(self, t_now, bundle, is_task_table=False):
+    def bundle_receive(self, t_now, bundle):
         """
-        Receive bundle from neighbouring node. This also includes the receiving of Task
-        Tables, as indicated by the flag in the args.
+        Receive bundle from neighbouring node.
 
         If the bundle is too large to be accommodated, reject, else accept
         """
-        if is_task_table:
-            self._merge_task_tables(bundle)
-            return
-
         if self.buffer.capacity_remaining < bundle.size:
             # TODO Handle the case where a bundle is too large to be accommodated
             pass
             return
 
         bundle.hop_count += 1
+        bundle.current = self.uid
 
-        if bundle.dst == self.uid:
+        if bundle.dst == self.eid:
             if DEBUG:
                 print(f"*** Bundle delivered to {self.uid} from {bundle.previous_node} at"
                       f" {t_now:.1f}")
+            bundle.delivered_at = t_now
             pub.sendMessage("bundle_delivered", b=bundle, t_now=t_now)
             self.delivered_bundles.append(bundle)
             if self.task_table:
-                self.task_table[bundle.task_id].status = "delivered"
-                self._task_table_updated = True
+                self.task_table[bundle.task_id].delivered(
+                    t_now, bundle.previous_node, self.uid)
+                bundle.task.requests[0].status = "delivered"
+                self._update_task_change_tracker(bundle.task_id, [])
             return
 
         if DEBUG:
@@ -365,8 +438,49 @@ class Node:
 
         pub.sendMessage("bundle_forwarded")
         self.buffer.append(bundle)
+        # TODO it may be good to invoke the bundle assignment here, because otherwise
+        #  we're perhaps waiting until the next time step, since this event muight
+        #  happen after this node has invoked its own bundle assignment for this
+        #  time-step. However, that is a realistic scenario if, indeed BA is only
+        #  triggered at those regular intervals.
 
     # *** ROUTE SELECTION, BUNDLE ENQUEUEING AND RESOURCE CONSIDERATION ***
+    def route_table_eval(self, t_now):
+        """Review the Route Tables and, if deemed necessary, refresh them.
+
+        Each route table stores potential routes to a specific destination endpoint. If
+        the number of routes available, or the minimum route volume is below some
+        threshold, regenerate this route table.
+        """
+        for dest in self.route_table:
+
+            # TODO Make the Route Table a class and update these things as necessary,
+            #  so that we don't need to do it on the fly each time
+            # Remove any route that has already passed
+            self.route_table[dest] = [r for r in self.route_table[dest] if
+                                      r.hops[0].end > t_now]
+
+            self.contact_plan = [c for c in self.contact_plan if c.end > t_now]
+            self.contact_plan_targets = [c for c in self.contact_plan_targets if c.end > t_now]
+
+            # Get the time at which the very last route currently ends
+            if self.route_table[dest]:
+                max_delivery_time = max([r.hops[-1].end for r in self.route_table[dest]])
+            else:
+                max_delivery_time = 0
+
+            # TODO need a better approach to this
+            # if max_delivery_time < self.buffer.final_deadline_for_destination(dest):
+            if max_delivery_time < t_now + 5000:
+                self.route_table[dest] = self._route_discovery(
+                    dest,
+                    t_now,
+                    t_now + 10000,  # TODO
+                )
+
+    def _route_discovery(self, destination, from_time, end_time):
+        return cgr_yens(self.uid, destination, self.contact_plan, from_time, end_time)
+
     def bundle_assignment_controller(self, env):
         """Repeating process that kicks off the bundle assignment procedure.
         """
@@ -384,7 +498,13 @@ class Node:
         not available shall be dropped from the buffer.
         :return:
         """
+        new_bundles_assigned = False
+
+        if not self.buffer.is_empty():
+            self.route_table_eval(t_now)
+
         while not self.buffer.is_empty():
+            new_bundles_assigned = True
             assigned = False
             b = self.buffer.extract()
 
@@ -398,11 +518,10 @@ class Node:
                 # finished, add it to that next node's outbound queue. Otherwise,
                 # remove the route and use CGR.
                 if next_hop.end > t_now and next_hop.frm == self.uid:
-                    # TODO there's a chance that this route won't be feasible in
+                    # FIXME there's a chance that this route won't be feasible in
                     #  terms of resources, such that we reduce them to below zero.
                     #  How to handle this...
-                    self.outbound_queues[next_hop.to].append(b)
-                    self._outbound_queue_all.append(b)
+                    self._append_to_outbound_queue(b, next_hop.to)
                     hops = []
                     for hop in b.route:
                         hops.append(self._contact_plan_dict[hop])
@@ -411,13 +530,13 @@ class Node:
                 else:
                     if DEBUG:
                         print(f"Bundle not able to traverse its MSR route on {self.uid}"
-                              f"at {t_now}")
+                              f" at {t_now}")
                     b.route = []
                     b.obey_route = False
 
             candidates = candidate_routes(
                 t_now, self.uid, self.contact_plan, b, self.route_table[b.dst], [],
-                self.outbound_queues
+                self.outbound_queue
             )
 
             for route in candidates:
@@ -454,8 +573,7 @@ class Node:
                 # b.base_route = [int(x.uid) for x in route.hops]
 
                 # Add the bundle to the outbound queue for the bundle's "next node"
-                self.outbound_queues[route.hops[0].to].append(b)
-                self._outbound_queue_all.append(b)
+                self._append_to_outbound_queue(b, route.hops[0].to)
 
                 # Update the resources on the selected route
                 self._contact_resource_update(route.hops, b.size, b.priority)
@@ -465,17 +583,19 @@ class Node:
                 break
 
             if not assigned:
+                b.dropped_at = t_now
                 self.drop_list.append(b)
                 if DEBUG:
                     print(f"XXX Bundle dropped from network at {t_now} on node"
                           f" {self.uid}")
-                pub.sendMessage("bundle_dropped")
+                pub.sendMessage("bundle_dropped", bundle=b)
 
         # Check for any over-booking of contacts and, if required, carry out the bundle
         # assignment again for any bundles that have been put back into the Buffer
-        self._contact_over_booking()
-        if not self.buffer.is_empty():
-            self._bundle_assignment(t_now)
+        if new_bundles_assigned:
+            self._contact_over_booking()
+            if not self.buffer.is_empty():
+                self._bundle_assignment(t_now)
 
     def _return_outbound_queue_to_buffer(self, to):
         """Return the contents of the outbound queue to the buffer.
@@ -483,10 +603,29 @@ class Node:
         This process will also result in resources that were originally assigned for
         the movement of this bundle, to be replenished so that they are not double-counted
         """
-        while self.outbound_queues[to]:
-            bundle = self.outbound_queues[to].pop()
-            self._outbound_queue_all.append(bundle)
+        while self.outbound_queue[to]:
+            bundle = self._pop_from_outbound_queue(to)
             self._return_bundle_to_buffer(bundle)
+
+    def _append_to_outbound_queue(self, bundle: Bundle, to: int) -> None:
+        """Add a bundle to an outbound queue.
+
+        Args:
+            bundle: Bundle object to be added to OBQ
+            to: Node to which this bundle is to be sent
+        """
+        self.outbound_queue[to].append(bundle)
+        self._outbound_queue_all.append(bundle)
+
+    def _pop_from_outbound_queue(self, to: int) -> Bundle:
+        """Extract a bundle from the Outbound Queue.
+
+        Args:
+            to: Node to which this bundle is destined for transmission
+        """
+        bundle = self.outbound_queue[to].pop(0)
+        self._outbound_queue_all.remove(bundle)
+        return bundle
 
     def _return_bundle_to_buffer(self, bundle):
         if bundle.route:
@@ -519,8 +658,8 @@ class Node:
     def _contact_over_booking(self) -> None:
         """Return bundles to the buffer until no over-booked contacts.
 
-        While we're over-booked on at least one contact, pop bundles from the list of
-        that have been assigned already and add, if they use at least one of the
+        While we're over-booked on at least one contact, pop bundles from the list of Bs
+        that have been assigned already and, if they use at least one of the
         over-booked contacts, add them back into the Buffer. This will replenish
         resources on each of the contacts to which the bundle was assigned. Once no
         over-booked contacts exist, add the bundles that were popped, but not returned
@@ -538,13 +677,14 @@ class Node:
         while any([min(c.mav) < 0 for c in overbooked_contacts]):
             bundle = self._outbound_queue_all.pop()
             if set(bundle.route) & set([x.uid for x in overbooked_contacts]):
-                self.outbound_queues[self._contact_plan_dict[bundle.route[0]].to].remove(bundle)
+                self.outbound_queue[self._contact_plan_dict[bundle.route[0]].to].remove(bundle)
+                bundle.obey_route = False
                 self._return_bundle_to_buffer(bundle)
             else:
                 return_to_obq.append(bundle)
         self._outbound_queue_all.extend(return_to_obq)
 
-    def _merge_task_tables(self, tt_other):
+    def _merge_task_tables(self, tt_other, frm):
         """
         Compare two task tables and return one with the most up to dat information
         """
@@ -558,4 +698,4 @@ class Node:
                 if not self.task_table[task_id] < task:
                     continue
             self.task_table[task_id] = deepcopy(task)
-            self._task_table_updated = True
+            self._update_task_change_tracker(task_id, excluded=[frm])

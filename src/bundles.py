@@ -4,6 +4,8 @@ import sys
 from dataclasses import dataclass, field
 from typing import List
 
+from scheduling import Task
+
 
 @dataclass
 class Buffer:
@@ -45,6 +47,15 @@ class Buffer:
 	def is_empty(self):
 		return True if not self.bundles else False
 
+	@property
+	def all_destinations(self):
+		return list(set([b.dst for b in self.bundles]))
+
+	def final_deadline_for_destination(self, d):
+		if self.is_empty() or d not in self.all_destinations:
+			return None
+		return max([b.deadline for b in self.bundles if b.dst == d])
+
 	def __repr__(self):
 		return "Buffer: qty %d | available %d%% | remaining vol %d" % (
 			len(self.bundles),
@@ -82,12 +93,16 @@ class Bundle:
 	target_id: int = 0
 	created_at: int = 0
 	size: int = 1
-	deadline: int = 1000
+	deadline: int = sys.maxsize
 	priority: int = 0  #
 	critical: bool = False
 	fragment: bool = True
-	task_id: int = None
+	task_id: str | int = None
+	task: Task = None
 	obey_route: bool = False
+	current: int = None
+	delivered_at: float = None
+	dropped_at: float = None
 	previous_node: int = field(init=False, default=None)
 	hop_count: int = field(init=False, default=0)
 	_route: List = field(init=False, default_factory=list)
@@ -114,6 +129,8 @@ class Bundle:
 		self._route = hops
 
 	def update_age(self, t_now):
+		"""Age update method, called immediately before forwarding, as advised in the BP.
+		"""
 		self._age = t_now - self.created_at
 
 	def __repr__(self):
