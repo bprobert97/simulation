@@ -55,36 +55,37 @@ def requests_generator(
 	tasks, added to a task table, and distributed through the network for execution by
 	nodes.
 	"""
-	num_fails = 0
+	# num_fails = 0
 	while True:
 		yield env.timeout(random.expovariate(1 / inter_arrival_time))
-		sources_tried = set()
-		while len(sources_tried) < len(sources):
+		# sources_tried = set()
+		# while len(sources_tried) < len(sources):
 			# Keep trying different sources (targets) at random until one of them
 			# results in a successful task creation
-			source = random.choice(
-				[s for s in sources.values() if s.uid not in sources_tried])
-			sources_tried.add(source.uid)
-			acquire_deadline = env.now + acquire_time if acquire_time else sys.maxsize
+			# source = random.choice(
+			# 	[s for s in sources.values() if s.uid not in sources_tried])
+			# sources_tried.add(source.uid)
+		source = random.choice([s for s in sources.values()])
+		acquire_deadline = env.now + acquire_time if acquire_time else sys.maxsize
 
-			request = Request(
-				source.uid,
-				destination=random.choice(sinks),
-				data_volume=size,
-				priority=priority,
-				deadline_acquire=acquire_deadline,
-				bundle_lifetime=deliver_time,
-				time_created=env.now,
-			)
-			moc.request_received(request)
-			pub.sendMessage("request_submit", r=request)
-			request = moc.request_queue.pop(0)
-			success = moc.process_request(request, env.now)
-			if success:
-				break
-			if len(sources_tried) == len(sources):
-				num_fails += 1
-				print(f"Number of fully failed requests is {num_fails}")
+		request = Request(
+			source.uid,
+			destination=random.choice(sinks),
+			data_volume=size,
+			priority=priority,
+			deadline_acquire=acquire_deadline,
+			bundle_lifetime=deliver_time,
+			time_created=env.now,
+		)
+		moc.request_received(request)
+		pub.sendMessage("request_submit", r=request)
+		request = moc.request_queue.pop(0)
+		success = moc.process_request(request, env.now)
+			# if success:
+			# 	break
+			# if len(sources_tried) == len(sources):
+			# 	num_fails += 1
+			# 	print(f"Number of fully failed requests is {num_fails}")
 
 
 def bundle_generator(env, sources, destinations):
@@ -141,6 +142,7 @@ def create_route_tables(nodes, destinations, t_now=0, end_time=sys.maxsize) -> N
 	Route Table creation - Invokes Yen's CGR algorithm to discover routes between
 	node-pairs, stores them in a dictionary and updates the route table on each node
 	"""
+
 	for n in nodes:
 		for d in [x for x in destinations if x != n.uid]:
 			n.route_table[d] = cgr_yens(
@@ -252,7 +254,7 @@ def update_contact_endpoints(cp, gateways):
 	return cp
 
 
-def build_contact_plan(ins, sats, gws, tgts):
+def build_contact_plan(ins, duration, times, sats, gws, tgts):
 	rates = get_data_rate_pairs(
 		[*sats],
 		[*gws],
@@ -272,7 +274,7 @@ def build_contact_plan(ins, sats, gws, tgts):
 		cp.insert(
 			0,
 			Contact(
-				SCHEDULER_ID, g_uid, ENDPOINT_ID, 0, ins.simulation.duration,
+				SCHEDULER_ID, g_uid, ENDPOINT_ID, 0, duration,
 				sys.maxsize
 			)
 		)
@@ -280,7 +282,7 @@ def build_contact_plan(ins, sats, gws, tgts):
 		cp.insert(
 			0,
 			Contact(
-				g_uid, SCHEDULER_ID, SCHEDULER_ID, 0, ins.simulation.duration,
+				g_uid, SCHEDULER_ID, SCHEDULER_ID, 0, duration,
 				sys.maxsize
 			)
 		)
@@ -327,11 +329,19 @@ if __name__ == "__main__":
 	with open(filename, "rb") as read_content:
 		inputs = json.load(read_content, object_hook=lambda d: SimpleNamespace(**d))
 
-	times = [x for x in range(0, inputs.simulation.duration, inputs.simulation.step_size)]
+	# Time for the network to reach a steady state, from an empty start
+	warm_up = 5000
+
+	# Time after which we ignore any new requests and their associated tasks/bundles
+	cool_down = 2 * (inputs.traffic.max_time_to_acquire + inputs.traffic.max_time_to_deliver)
+
+	full_duration = inputs.simulation.duration + warm_up + cool_down
+
+	times = [x for x in range(0, full_duration, inputs.simulation.step_size)]
 
 	targets, satellites, gateways = init_space_network(
 		inputs.simulation.date_start,
-		inputs.simulation.duration,
+		full_duration,
 		inputs.simulation.step_size,
 		inputs.targets,
 		inputs.satellites,
@@ -339,7 +349,8 @@ if __name__ == "__main__":
 	)
 	print("Node propagation complete")
 
-	contact_plan_base = build_contact_plan(inputs, satellites, gateways, targets)
+	contact_plan_base = build_contact_plan(
+		inputs, full_duration, times, satellites, gateways, targets)
 	cp_wo_targets = [c for c in contact_plan_base if c.to not in [t for t in targets]]
 	cp_only_targets = [c for c in contact_plan_base if c.to in [t for t in targets]]
 	print("Contact plans built")
@@ -351,7 +362,7 @@ if __name__ == "__main__":
 	)
 
 	request_arrival_wait_time = get_request_inter_arrival_time(
-			inputs.simulation.duration,
+			full_duration,
 			download_capacity,
 			inputs.traffic.congestion,
 			inputs.traffic.size
@@ -384,14 +395,8 @@ if __name__ == "__main__":
 	)
 	print("Route tables constructed")
 
-	# Time until the network is fully populated with "steady state" data flow
-	warm_up = 5000
-
-	# Time after which we ignore any new requests and their associated tasks/bundles.
-	cool_down = 2 * (inputs.traffic.max_time_to_acquire + inputs.traffic.max_time_to_deliver)
-
 	# Set up the analytics module.
-	analytics_ = init_analytics(inputs.simulation.duration, warm_up, cool_down)
+	analytics_ = init_analytics(full_duration, warm_up, cool_down)
 
 	# ************************ BEGIN THE SIMULATION PROCESS ************************
 	# Initiate the simpy environment, which keeps track of the event queue and triggers
@@ -422,8 +427,8 @@ if __name__ == "__main__":
 		#  We could actually have something that watches our Route Tables and triggers
 		#  the Route Discovery whenever we drop below a certain number of good options
 
-	env.run(until=inputs.simulation.duration - (cool_down / 2))
-	# cProfile.run('env.run(until=inputs.simulation.duration-(cool_down/2))')
+	# env.run(until=full_duration - (cool_down / 2))
+	cProfile.run('env.run(until=full_duration - (cool_down / 2))')
 
 	with open(f"results//results_{inputs.traffic.congestion}", "wb") as file:
 		pickle.dump(analytics_, file)
@@ -435,7 +440,7 @@ if __name__ == "__main__":
 	print(f"{len(analytics_.get_failed_requests_in_active_period())} Requests could not be fulfilled")
 	# print(f"{analytics_.requests_duplicated_count} Requests already handled by existing tasks\n")
 
-	print("*** TASK DATA ***")
+	# print("*** TASK DATA ***")
 	# print(f"{analytics_.tasks_processed_count} Tasks were created")
 	# print(f"{analytics_.tasks_failed_count} Tasks were unsuccessful\n")
 

@@ -19,10 +19,7 @@ class Analytics:
 		self.bundles_delivered = []
 		self.bundles_failed = []
 
-		self.bundles_acquired_count = 0
 		self.bundles_forwarded_count = 0
-		self.bundles_delivered_count = 0
-		self.bundles_dropped_count = 0
 		self.bundles_rerouted_count = 0
 
 	def get_all_bundles_in_active_period(self):
@@ -146,9 +143,15 @@ class Analytics:
 	def duplicated_request(self):
 		self.requests_duplicated_count += 1
 
+	def get_tasks_generated_in_active_period(self):
+		return [
+			t for t in self.tasks.values()
+			if self.start <= t.requests[0].time_created <= self.end
+		]
+
 	@property
 	def tasks_processed_count(self):
-		return len(self.tasks)
+		return len(self.get_tasks_generated_in_active_period())
 
 	def add_task(self, t):
 		self.tasks[t.uid] = t
@@ -167,18 +170,15 @@ class Analytics:
 
 	def add_bundle(self, b):
 		self.bundles.append(b)
-		self.bundles_acquired_count += 1
 
 	def forward_bundle(self):
 		self.bundles_forwarded_count += 1
 
-	def deliver_bundle(self, b, t_now):
+	def deliver_bundle(self, b):
 		self.bundles_delivered.append(b)
-		self.bundles_delivered_count += 1
 
 	def drop_bundle(self, bundle):
 		self.bundles_failed.append(bundle)
-		self.bundles_dropped_count += 1
 
 	def reroute_bundle(self):
 		"""
@@ -189,3 +189,22 @@ class Analytics:
 		"""
 		self.bundles_rerouted_count += 1
 
+	@property
+	def bundles_acquired_count(self):
+		return len(self.get_all_bundles_in_active_period())
+
+	@property
+	def bundles_delivered_count(self):
+		return len(self.get_bundles_delivered_in_active_period())
+
+	@property
+	def bundles_dropped_count(self):
+		return len(self.get_bundles_failed_in_active_period())
+
+	@property
+	def delivery_ratio(self):
+		return self.bundles_delivered_count / self.bundles_acquired_count
+
+	@property
+	def drop_ratio(self):
+		return 1 - self.delivery_ratio

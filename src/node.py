@@ -423,7 +423,7 @@ class Node:
                 print(f"*** Bundle delivered to {self.uid} from {bundle.previous_node} at"
                       f" {t_now:.1f}")
             bundle.delivered_at = t_now
-            pub.sendMessage("bundle_delivered", b=bundle, t_now=t_now)
+            pub.sendMessage("bundle_delivered", b=bundle)
             self.delivered_bundles.append(bundle)
             if self.task_table:
                 self.task_table[bundle.task_id].delivered(

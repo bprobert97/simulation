@@ -11,10 +11,10 @@
   },
   "traffic": {
     "size": 10,
-    "max_time_to_acquire": 5000,
-    "max_time_to_deliver": 2000,
+    "max_time_to_acquire": 10000,
+    "max_time_to_deliver": 4000,
     "priority": 0,
-    "congestion": 0.9,
+    "congestion": 0.5,
     "msr": true
   },
   "targets": {
