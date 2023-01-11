@@ -452,34 +452,22 @@ class Node:
         the number of routes available, or the minimum route volume is below some
         threshold, regenerate this route table.
         """
+        # TODO Make the Route Table a class and update these things as necessary,
+        #  so that we don't need to do it on the fly each time
+        # Remove any routes and contacts that have already passed
         for dest in self.route_table:
+            self.route_table[dest] = [
+                r for r in self.route_table[dest] if r.hops[0].end > t_now
+            ]
 
-            # TODO Make the Route Table a class and update these things as necessary,
-            #  so that we don't need to do it on the fly each time
-            # Remove any route that has already passed
-            self.route_table[dest] = [r for r in self.route_table[dest] if
-                                      r.hops[0].end > t_now]
+        self.contact_plan = [c for c in self.contact_plan if c.end > t_now]
+        self.contact_plan_targets = [c for c in self.contact_plan_targets if c.end > t_now]
 
-            self.contact_plan = [c for c in self.contact_plan if c.end > t_now]
-            self.contact_plan_targets = [c for c in self.contact_plan_targets if c.end > t_now]
-
-            # Get the time at which the very last route currently ends
-            if self.route_table[dest]:
-                max_delivery_time = max([r.hops[-1].end for r in self.route_table[dest]])
-            else:
-                max_delivery_time = 0
-
-            # TODO need a better approach to this
-            # if max_delivery_time < self.buffer.final_deadline_for_destination(dest):
-            if max_delivery_time < t_now + 5000:
-                self.route_table[dest] = self._route_discovery(
-                    dest,
-                    t_now,
-                    t_now + 10000,  # TODO
-                )
-
-    def _route_discovery(self, destination, from_time, end_time):
-        return cgr_yens(self.uid, destination, self.contact_plan, from_time, end_time)
+    def _route_discovery(self, destination: int, from_time: float, num_routes: int):
+        return cgr_yens(
+            self.uid, destination, self.contact_plan, from_time, num_routes,
+            self.route_table[destination]
+        )
 
     def bundle_assignment_controller(self, env):
         """Repeating process that kicks off the bundle assignment procedure.
@@ -500,6 +488,8 @@ class Node:
         """
         new_bundles_assigned = False
 
+        # TODO Is this the best place for this?
+        # If there are bundles waiting to be assigned, clean up the route tables and CP
         if not self.buffer.is_empty():
             self.route_table_eval(t_now)
 
@@ -534,10 +524,29 @@ class Node:
                     b.route = []
                     b.obey_route = False
 
-            candidates = candidate_routes(
-                t_now, self.uid, self.contact_plan, b, self.route_table[b.dst], [],
-                self.outbound_queue
-            )
+            # Check for a feasible candidate route. If there isn't one, but our options
+            # don't go beyond the lifetime of the bundle, then there may be a later
+            # route that's feasible. Therefore, add 10 routes to the route table and
+            # try again. Break if either we've found a candidate, or no routes were
+            # added (i.e. there are no more feasible routes)
+            num_routes = len(self.route_table[b.dst])
+            while True:
+                candidates = candidate_routes(
+                    t_now, self.uid, self.contact_plan, b, self.route_table[b.dst], [],
+                    self.outbound_queue
+                )
+
+                if candidates:
+                    break
+
+                if not num_routes or \
+                        self.route_table[b.dst][-1].best_delivery_time < b.deadline:
+                    self._route_discovery(b.dst, t_now, 10)
+                    if len(self.route_table[b.dst]) <= num_routes:
+                        break
+                    num_routes = len(self.route_table[b.dst])
+                else:
+                    break
 
             for route in candidates:
                 # If any of the nodes along this route are in the "excluded nodes"

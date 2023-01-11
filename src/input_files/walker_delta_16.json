@@ -3,7 +3,7 @@
   "plot": false,
   "debug": true,
   "simulation": {
-    "duration": 30000,
+    "duration": 10000,
     "date_start": 2459659.005,
     "step_size": 10,
     "filename": "test_0",
@@ -11,11 +11,11 @@
   },
   "traffic": {
     "size": 10,
-    "max_time_to_acquire": 10000,
-    "max_time_to_deliver": 4000,
+    "max_time_to_acquire": 7200,
+    "max_time_to_deliver": 3600,
     "priority": 0,
     "congestion": 0.5,
-    "msr": true
+    "msr": false
   },
   "targets": {
     "type": "bespoke",

@@ -241,12 +241,14 @@ def cgr_yens(
         dest: int,
         contact_plan: List[Contact],
         t_now: float = 0.0,
-        end_time: int = sys.maxsize
+        num_routes: int = 10,
+        routes: List[Route] = None
 ) -> List[Route]:
     """Find the k shortest paths between nodes s & d in the graph, g.
     """
-    # TODO Change this from finding the k-shortest routes, to simply finding routes
-    #  until we have enough resources to send all the bundles with this destination
+    if routes is None:
+        routes = []
+
     potential_routes = []
 
     # Root contact is the connection to self that acts as the source vertex in the
@@ -254,23 +256,23 @@ def cgr_yens(
     root = Contact(src, src, src, t_now, sys.maxsize, sys.maxsize)
     root.arrival_time = t_now
 
-    # reset contacts
-    for contact in contact_plan:
-        contact.clear_dijkstra_area()
-        contact.clear_management_area()
+    if not routes:
+        # reset contacts
+        for contact in contact_plan:
+            contact.clear_dijkstra_area()
+            contact.clear_management_area()
 
-    # Find the lowest cost path using Dijkstra
-    route = cgr_dijkstra(root, dest, contact_plan)
+        # Find the lowest cost path using Dijkstra
+        route = cgr_dijkstra(root, dest, contact_plan)
 
-    if route is None:
-        return []
-    routes = [route]
-    latest_route_end = route.hops[-1].end
+        if route is None:
+            return routes
+
+        routes.append(route)
 
     [r.hops.insert(0, root) for r in routes]
 
-    # for k in range(num_routes - len(routes)):
-    while latest_route_end < end_time:
+    for k in range(num_routes - 1):
         # For each contact in the most recently identified (k-1'th) route (apart
         # from the last contact
         for spur_contact in routes[-1].hops[:-1]:
@@ -332,10 +334,7 @@ def cgr_yens(
         potential_routes.sort()
 
         # add best route to routes
-        best_route = potential_routes.pop(0)
-        if latest_route_end < best_route.hops[-1].end:
-            latest_route_end = best_route.hops[-1].end
-        routes.append(best_route)
+        routes.append(potential_routes.pop(0))
 
     # remove root_contact from hops
     for route in routes:

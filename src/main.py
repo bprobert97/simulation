@@ -150,7 +150,6 @@ def create_route_tables(nodes, destinations, t_now=0, end_time=sys.maxsize) -> N
 				d,
 				n.contact_plan,
 				t_now,
-				end_time,
 			)
 
 
