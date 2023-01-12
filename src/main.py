@@ -6,6 +6,7 @@ import json
 import cProfile
 import pickle
 from types import SimpleNamespace
+from typing import List
 
 from copy import deepcopy
 import simpy
@@ -78,7 +79,6 @@ def requests_generator(
 			time_created=env.now,
 		)
 		moc.request_received(request)
-		pub.sendMessage("request_submit", r=request)
 		request = moc.request_queue.pop(0)
 		success = moc.process_request(request, env.now)
 			# if success:
@@ -137,7 +137,7 @@ def init_space_nodes(nodes, cp, cpwt, msr=True):
 	return node_list
 
 
-def create_route_tables(nodes, destinations, t_now=0, end_time=sys.maxsize) -> None:
+def create_route_tables(nodes, destinations, t_now=0) -> None:
 	"""
 	Route Table creation - Invokes Yen's CGR algorithm to discover routes between
 	node-pairs, stores them in a dictionary and updates the route table on each node
@@ -163,18 +163,13 @@ def init_analytics(duration, ignore_start=0, ignore_end=0):
 	a = Analytics(duration, ignore_start, ignore_end)
 
 	pub.subscribe(a.submit_request, "request_submit")
-	pub.subscribe(a.duplicated_request, "request_duplicated")
 
 	pub.subscribe(a.add_task, "task_add")
-	pub.subscribe(a.redundant_task, "task_redundant")  # TODO
-	pub.subscribe(a.fail_task, "task_failed")  # TODO
-	pub.subscribe(a.renew_task, "task_renew")  # TODO
+	pub.subscribe(a.fail_task, "task_failed")
 
 	pub.subscribe(a.add_bundle, "bundle_acquired")
 	pub.subscribe(a.deliver_bundle, "bundle_delivered")
-	pub.subscribe(a.forward_bundle, "bundle_forwarded")
 	pub.subscribe(a.drop_bundle, "bundle_dropped")
-	pub.subscribe(a.reroute_bundle, "bundle_reroute")  # TODO
 
 	return a
 
@@ -223,7 +218,7 @@ def get_download_capacity(contact_plan, sinks, sats):
 
 
 def get_data_rate_pairs(sats, gws, s2s, s2g, g2s):
-	nodes = [*satellites, *gateways]
+	nodes = [*sats, *gws]
 	rate_pairs = {}
 	for n1 in nodes:
 		rate_pairs[n1] = {}
@@ -292,15 +287,23 @@ def build_contact_plan(ins, duration, times, sats, gws, tgts):
 	return cp
 
 
-def build_moc(cp, cpt, sats, gws):
+def build_moc(cp, cpt, sats, gws, scheme: List = None):
 	# Instantiate the Mission Operations Center, i.e. the Node at which requests arrive
 	# and then set up each of the remote nodes (including both satellites and gateways).
+	if scheme is None:
+		scheme = [True, True, True, True, True]
 	moc = Node(
 		SCHEDULER_ID,
 		buffer=Buffer(SCHEDULER_BUFFER_CAPACITY),
 		contact_plan=deepcopy(cp),
 		contact_plan_targets=deepcopy(cpt),
-		scheduler=Scheduler(),
+		scheduler=Scheduler(
+			valid_pickup=scheme[0],
+			define_pickup=scheme[1],
+			valid_delivery=scheme[2],
+			resource_aware=scheme[3],
+			define_delivery=scheme[4]
+		),
 		outbound_queue={x: [] for x in {**sats, **gws}},
 		request_duplication=False
 	)
@@ -310,46 +313,32 @@ def build_moc(cp, cpt, sats, gws):
 	return moc
 
 
-if __name__ == "__main__":
-	"""
-	Contact Graph Scheduling implementation
-	
-	Requests are submitted to a central Scheduler node, which process requests into Tasks 
-	that are distributed through a delay-tolerant network so that nodes can execute 
-	pick-ups according to their assignation (i.e. bundle acquisition). Acquired bundles 
-	are routed through the network using either CGR or MSR, as specified.
-	"""
+def main(inputs_, scheme: List = None):
 	random.seed(0)
 
-	# ****************** SPACE NETWORK SETUP ******************
-	# set up the space network nodes (satellites and gateways, and if known in advance,
-	# the targets)
-	filename = "input_files//walker_delta_16.json"
-	with open(filename, "rb") as read_content:
-		inputs = json.load(read_content, object_hook=lambda d: SimpleNamespace(**d))
-
-	# Time for the network to reach a steady state, from an empty start
+	# Time for the clean network to reach a steady state
 	warm_up = 5000
 
-	# Time after which we ignore any new requests and their associated tasks/bundles
-	cool_down = 2 * (inputs.traffic.max_time_to_acquire + inputs.traffic.max_time_to_deliver)
+	# Time after which we ignore any new requests in the analysis
+	cool_down = 2 * (
+			inputs_.traffic.max_time_to_acquire + inputs_.traffic.max_time_to_deliver)
 
-	full_duration = inputs.simulation.duration + warm_up + cool_down
+	full_duration = inputs_.simulation.duration + warm_up + cool_down
 
-	times = [x for x in range(0, full_duration, inputs.simulation.step_size)]
+	times = [x for x in range(0, full_duration, inputs_.simulation.step_size)]
 
 	targets, satellites, gateways = init_space_network(
-		inputs.simulation.date_start,
+		inputs_.simulation.date_start,
 		full_duration,
-		inputs.simulation.step_size,
-		inputs.targets,
-		inputs.satellites,
-		inputs.gateways
+		inputs_.simulation.step_size,
+		inputs_.targets,
+		inputs_.satellites,
+		inputs_.gateways
 	)
 	print("Node propagation complete")
 
 	contact_plan_base = build_contact_plan(
-		inputs, full_duration, times, satellites, gateways, targets)
+		inputs_, full_duration, times, satellites, gateways, targets)
 	cp_wo_targets = [c for c in contact_plan_base if c.to not in [t for t in targets]]
 	cp_only_targets = [c for c in contact_plan_base if c.to in [t for t in targets]]
 	print("Contact plans built")
@@ -361,36 +350,30 @@ if __name__ == "__main__":
 	)
 
 	request_arrival_wait_time = get_request_inter_arrival_time(
-			full_duration,
-			download_capacity,
-			inputs.traffic.congestion,
-			inputs.traffic.size
-		)
+		full_duration,
+		download_capacity,
+		inputs_.traffic.congestion,
+		inputs_.traffic.size
+	)
 
 	moc = build_moc(
 		cp_wo_targets,
 		cp_only_targets,
 		satellites,
-		gateways
+		gateways,
+		scheme
 	)
 
 	nodes = init_space_nodes(
-		{**satellites,  **gateways},
+		{**satellites, **gateways},
 		cp_wo_targets,
 		cp_only_targets,
-		inputs.traffic.msr
+		inputs_.traffic.msr
 	)
-
-	# TODO Currently not able to accept VERY long lifetimes
-	# This is the time up to when we'll discover routes to. This is basically the time,
-	# from now, until any new request must have been completely handled, plus an
-	# additional bundle TTL on top
-	end_time = inputs.traffic.max_time_to_acquire + 2 * inputs.traffic.max_time_to_deliver
 
 	create_route_tables(
 		nodes=nodes,
 		destinations=[ENDPOINT_ID],
-		end_time=end_time
 	)
 	print("Route tables constructed")
 
@@ -404,13 +387,13 @@ if __name__ == "__main__":
 	env.process(requests_generator(
 		env,
 		targets,
-		[inputs.targets.destination],
+		[inputs_.targets.destination],
 		moc,
 		request_arrival_wait_time,
-		inputs.traffic.size,
-		inputs.traffic.priority,
-		inputs.traffic.max_time_to_acquire,
-		inputs.traffic.max_time_to_deliver,
+		inputs_.traffic.size,
+		inputs_.traffic.priority,
+		inputs_.traffic.max_time_to_acquire,
+		inputs_.traffic.max_time_to_deliver
 	))
 
 	# Set up the Simpy Processes on each of the Nodes. These are effectively the
@@ -419,35 +402,57 @@ if __name__ == "__main__":
 	# contact or discovering more routes downstream
 	for node in [moc] + nodes:
 		env.process(node.bundle_assignment_controller(env))
-		env.process(node.contact_controller(env))  # Generator that initiates contacts
-		# TODO Need to add in the generator that does regular route discovery. This
-		#  will effectively be something that runs every so often and makes sure we
-		#  have a sufficient number of routes in our route tables with enough capacity.
-		#  We could actually have something that watches our Route Tables and triggers
-		#  the Route Discovery whenever we drop below a certain number of good options
+		env.process(node.contact_controller(env))
 
-	# env.run(until=full_duration - (cool_down / 2))
-	cProfile.run('env.run(until=full_duration - (cool_down / 2))')
+	end_sim = full_duration - (cool_down / 2)
+	env.run(until=end_sim)
+	# cProfile.run('env.run(until=end_sim)')
 
-	with open(f"results//results_{inputs.traffic.congestion}", "wb") as file:
+	adjusted_download_capacity = download_capacity * (
+				inputs_.simulation.duration / full_duration)
+
+	print(f"Total download capacity was {adjusted_download_capacity} units")
+	analytics_.traffic_load = analytics_.bundles_acquired_count * inputs_.traffic.size / adjusted_download_capacity
+
+	return analytics_
+
+
+if __name__ == "__main__":
+	"""
+	Contact Graph Scheduling implementation
+	
+	Requests are submitted to a central Scheduler node, which process requests into Tasks 
+	that are distributed through a delay-tolerant network so that nodes can execute 
+	pick-ups according to their assignation (i.e. bundle acquisition). Acquired bundles 
+	are routed through the network using either CGR or MSR, as specified.
+	"""
+	filename = "input_files//walker_delta_16.json"
+	with open(filename, "rb") as read_content:
+		inputs = json.load(read_content, object_hook=lambda d: SimpleNamespace(**d))
+
+	analytics_ = main(inputs)
+
+	with open(f"results//results", "wb") as file:
 		pickle.dump(analytics_, file)
 
-	print(f"Total download capacity was {download_capacity} units")
+	print(f"Actual congestion, after considering rejected requests, was {analytics_.traffic_load}")
 
 	print("*** REQUEST DATA ***")
-	print(f"{len(analytics_.get_all_requests_in_active_period())} Requests were submitted")
-	print(f"{len(analytics_.get_failed_requests_in_active_period())} Requests could not be fulfilled")
-	# print(f"{analytics_.requests_duplicated_count} Requests already handled by existing tasks\n")
+	print(f"{analytics_.requests_submitted_count} Requests were submitted")
+	print(f"{analytics_.requests_failed_count} Requests could not be fulfilled")
+	print(f"{analytics_.requests_delivered_count} Requests were delivered\n")
 
-	# print("*** TASK DATA ***")
-	# print(f"{analytics_.tasks_processed_count} Tasks were created")
-	# print(f"{analytics_.tasks_failed_count} Tasks were unsuccessful\n")
+	print("*** TASK DATA ***")
+	print(f"{analytics_.tasks_processed_count} Tasks were created")
+	print(f"{analytics_.tasks_acquired_count} Tasks remain in an 'acquired' state")
+	print(f"{analytics_.tasks_delivered_count} Tasks were delivered")
+	print(f"{analytics_.tasks_failed_count} Tasks were unsuccessful\n")
 
 	print("*** BUNDLE DATA ***")
-	print(f"{len(analytics_.get_all_bundles_in_active_period())} Bundles were acquired")
-	print(f"{analytics_.bundles_forwarded_count} Bundles were forwarded")
-	print(f"{len(analytics_.get_bundles_delivered_in_active_period())} Bundles were delivered")
-	print(f"{len(analytics_.get_bundles_failed_in_active_period())} Bundles were dropped\n")
+
+	print(f"{analytics_.bundles_acquired_count} Bundles were acquired")
+	print(f"{analytics_.bundles_delivered_count} Bundles were delivered")
+	print(f"{analytics_.bundles_dropped_count} Bundles were dropped\n")
 
 	print("*** PERFORMANCE DATA ***")
 	print(f"The average bundle PICKUP latency is {analytics_.pickup_latency_ave}")
@@ -456,6 +461,4 @@ if __name__ == "__main__":
 	print(f"The bundle DELIVERY latency Std. Dev. is {analytics_.delivery_latency_stdev}")
 	print(f"The average bundle REQUEST latency is {analytics_.request_latency_ave}")
 	print(f"The bundle REQUEST latency Std. Dev. is {analytics_.request_latency_stdev}")
-
-	print('')
-
+	print(f"The average HOPS PER DELIVERED BUNDLE is {analytics_.hop_count_average}")

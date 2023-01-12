@@ -8,7 +8,7 @@ if __name__ == "__main__":
 	latency_del_mean = []
 	latency_del_stdv = []
 	delivery_ratio = []
-	congestions = [0.1, 0.3, 0.5, 0.7, 0.9]
+	congestions = [None, 0.1, 0.3, 0.5, 0.7, 0.9]
 	for con in congestions:
 		filename = f"results//results_{con}"
 		results = pickle.load(open(filename, "rb"))
@@ -16,7 +16,7 @@ if __name__ == "__main__":
 		latency_full_stdv.append(results.request_latency_stdev)
 		latency_del_mean.append(results.delivery_latency_ave)
 		latency_del_stdv.append(results.delivery_latency_stdev)
-		delivery_ratio.append(results.delivery_ratio)
+		delivery_ratio.append(results.bundle_delivery_ratio)
 
 	plt.style.use('_mpl-gallery')
 

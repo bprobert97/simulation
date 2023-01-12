@@ -123,10 +123,10 @@ class Scheduler:
     """
     parent = None
     valid_pickup: bool = True
-    valid_delivery: bool = True
     define_pickup: bool = True
-    define_delivery: bool = True
+    valid_delivery: bool = True
     resource_aware: bool = True
+    define_delivery: bool = True
 
     def __post_init__(self):
         # Need to make sure we're not defining a need to specify pickup or delivery

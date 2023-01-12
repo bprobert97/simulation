@@ -92,6 +92,7 @@ class Node:
         When a request is received, it gets added to the request queue.
         """
         self.request_queue.append(request)
+        pub.sendMessage("request_submit", r=request)
 
     def process_all_requests(self, curr_time):
         """Process each request in the queue, by earliest-arrival first.
@@ -147,7 +148,6 @@ class Node:
         # TODO add in some exception that handles a lack of feasible acquisition
         # print(f"No task was created for request {request.uid} as either acquisition "
         #    f"or delivery wasn't feasible")
-        pub.sendMessage("request_fail")
         request.status = "failed"
         self.failed_requests.append(request)
         return False
@@ -202,16 +202,20 @@ class Node:
         """
         for task_id, task in self.task_table.items():
 
-            # If the task's target is not the node we're in contact with, skip
-            if task.target != target:
-                continue
-
             # If the task is not needing to be executed
             if task.status != "pending":
                 continue
 
             # If the task has been assigned to different node, skip
             if task.assignee and task.assignee != self.uid:
+                continue
+
+            if task.deadline_acquire < t_now:
+                task.failed(t_now, self.uid)
+                pub.sendMessage("task_failed", task=task_id, t=t_now, on=self.uid)
+
+            # If the task's target is not the node we're in contact with, skip
+            if task.target != target:
                 continue
 
             # If the task has a LATER scheduled pickup time, skip
@@ -426,8 +430,8 @@ class Node:
             self.delivered_bundles.append(bundle)
             if self.task_table:
                 self.task_table[bundle.task_id].delivered(
-                    t_now, bundle.previous_node, self.uid)
-                bundle.task.requests[0].status = "delivered"
+                    t_now, bundle.previous_node, self.uid
+                )
                 self._update_task_change_tracker(bundle.task_id, [])
             return
 
@@ -530,6 +534,8 @@ class Node:
             # added (i.e. there are no more feasible routes)
             num_routes = len(self.route_table[b.dst])
             while True:
+                # TODO Check how we're actually using this candidate routes list. We're
+                #  recalculating for every bundle, every time, which seems unnecessary
                 candidates = candidate_routes(
                     t_now, self.uid, self.contact_plan, b, self.route_table[b.dst], [],
                     self.outbound_queue
@@ -573,7 +579,7 @@ class Node:
                     if hop.end <= t_now:
                         continue
 
-                # If this route cannot accommodate the bundle, skip
+                # # If this route cannot accommodate the bundle, skip
                 if route.volume < b.size:
                     continue
 
@@ -596,7 +602,7 @@ class Node:
                 if DEBUG:
                     print(f"XXX Bundle dropped from network at {t_now} on node"
                           f" {self.uid}")
-                pub.sendMessage("bundle_dropped", bundle=b)
+                pub.sendMessage("bundle_dropped", b=b)
 
         # Check for any over-booking of contacts and, if required, carry out the bundle
         # assignment again for any bundles that have been put back into the Buffer

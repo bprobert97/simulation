@@ -11,44 +11,14 @@ class Analytics:
 		self.requests_duplicated_count = 0
 
 		self.tasks = {}
-		self.tasks_failed_count = 0
-		self.tasks_redundant_count = 0
-		self.tasks_renewed_count = 0
 
 		self.bundles = []
 		self.bundles_delivered = []
 		self.bundles_failed = []
 
-		self.bundles_forwarded_count = 0
-		self.bundles_rerouted_count = 0
+		self._traffic_load = None
 
-	def get_all_bundles_in_active_period(self):
-		"""
-		Return list of all bundles originating from requests in active period
-		"""
-		return [
-			b for b in self.bundles if
-			self.start <= b.task.requests[0].time_created <= self.end
-		]
-
-	def get_bundles_delivered_in_active_period(self):
-		"""
-		Return list of delivered bundles originating from requests in active period
-		"""
-		return [
-			b for b in self.bundles_delivered if
-			self.start <= b.task.requests[0].time_created <= self.end
-		]
-
-	def get_bundles_failed_in_active_period(self):
-		"""
-		Return list of dropped bundles originating from requests in active period
-		"""
-		return [
-			b for b in self.bundles_failed if
-			self.start <= b.task.requests[0].time_created <= self.end
-		]
-
+	# *************************** LATENCIES *******************************
 	@property
 	def pickup_latencies(self):
 		"""List of times between request submission and bundle creation for all bundles
@@ -104,6 +74,15 @@ class Analytics:
 	def request_latency_stdev(self):
 		return stdev(self.request_latencies)
 
+	@property
+	def hop_count_average(self):
+		bundles = self.get_bundles_delivered_in_active_period()
+		return mean([b.hop_count for b in bundles])
+
+	# ****************************** REQUESTS ********************************
+	def submit_request(self, r):
+		self.requests[r.uid] = r
+
 	def get_all_requests_in_active_period(self):
 		return [
 			r for r in self.requests.values()
@@ -124,9 +103,6 @@ class Analytics:
 			and r.status == "failed"
 		]
 
-	def submit_request(self, r):
-		self.requests[r.uid] = r
-
 	@property
 	def requests_submitted_count(self):
 		return len(self.get_all_requests_in_active_period())
@@ -139,9 +115,21 @@ class Analytics:
 	def requests_failed_count(self):
 		return len(self.get_failed_requests_in_active_period())
 
-	# FIXME update this
-	def duplicated_request(self):
-		self.requests_duplicated_count += 1
+	@property
+	def request_delivery_ratio(self):
+		return self.requests_delivered_count / self.requests_submitted_count
+
+	@property
+	def request_drop_ratio(self):
+		return self.requests_failed_count / self.requests_submitted_count
+
+	# ************************ TASKS ****************************
+	def add_task(self, t):
+		self.tasks[t.uid] = t
+
+	def fail_task(self, task, t, on):
+		self.tasks[task].failed(t, on)
+		self.requests[self.tasks[task].request_ids[0]].status = "failed"
 
 	def get_tasks_generated_in_active_period(self):
 		return [
@@ -149,45 +137,81 @@ class Analytics:
 			if self.start <= t.requests[0].time_created <= self.end
 		]
 
+	def get_tasks_acquired_in_active_period(self):
+		return [
+			t for t in self.get_tasks_generated_in_active_period()
+			if t.status == "acquired"
+		]
+
+	def get_tasks_delivered_in_active_period(self):
+		return [
+			t for t in self.get_tasks_generated_in_active_period()
+			if t.status == "delivered"
+		]
+
+	def get_tasks_failed_in_active_period(self):
+		return [
+			t for t in self.get_tasks_generated_in_active_period()
+			if t.status == "failed"
+		]
+
 	@property
 	def tasks_processed_count(self):
 		return len(self.get_tasks_generated_in_active_period())
 
-	def add_task(self, t):
-		self.tasks[t.uid] = t
+	@property
+	def tasks_acquired_count(self):
+		return len(self.get_tasks_acquired_in_active_period())
 
-	def fail_task(self):
-		self.tasks_failed_count += 1
+	@property
+	def tasks_delivered_count(self):
+		return len(self.get_tasks_delivered_in_active_period())
 
-	def redundant_task(self):
-		self.tasks_redundant_count += 1
+	@property
+	def tasks_failed_count(self):
+		return len(self.get_tasks_failed_in_active_period())
 
-	def renew_task(self):
-		"""
-		If a redundant task is replaced by a new task, this method is triggered
-		"""
-		self.tasks_renewed_count += 1
-
+	# *************************** BUNDLES *************************
 	def add_bundle(self, b):
 		self.bundles.append(b)
-
-	def forward_bundle(self):
-		self.bundles_forwarded_count += 1
+		self.requests[b.task.request_ids[0]].status = "acquired"
+		self.tasks[b.task_id].acquired(b.created_at, b.src)
 
 	def deliver_bundle(self, b):
 		self.bundles_delivered.append(b)
+		self.requests[b.task.request_ids[0]].status = "delivered"
+		self.tasks[b.task.uid].delivered(b.delivered_at, b.previous_node, b.current)
 
-	def drop_bundle(self, bundle):
-		self.bundles_failed.append(bundle)
+	def drop_bundle(self, b):
+		self.bundles_failed.append(b)
+		self.fail_task(b.task.uid, b.dropped_at, b.current)
 
-	def reroute_bundle(self):
+	def get_all_bundles_in_active_period(self):
 		"""
-		Method invoked any time a bundle is assigned to a route that differs from the
-		one along which it was most recently assigned. E.g. if a Bundle was due to
-		traverse the route 3->4->6, but doesn't make it over contact 3 and therefore
-		gets reassigned to the route 5->7, this would constitute a "reroute" event
+		Return list of all bundles originating from requests in active period
 		"""
-		self.bundles_rerouted_count += 1
+		return [
+			b for b in self.bundles if
+			self.start <= b.task.requests[0].time_created <= self.end
+		]
+
+	def get_bundles_delivered_in_active_period(self):
+		"""
+		Return list of delivered bundles originating from requests in active period
+		"""
+		return [
+			b for b in self.bundles_delivered if
+			self.start <= b.task.requests[0].time_created <= self.end
+		]
+
+	def get_bundles_failed_in_active_period(self):
+		"""
+		Return list of dropped bundles originating from requests in active period
+		"""
+		return [
+			b for b in self.bundles_failed if
+			self.start <= b.task.requests[0].time_created <= self.end
+		]
 
 	@property
 	def bundles_acquired_count(self):
@@ -202,9 +226,17 @@ class Analytics:
 		return len(self.get_bundles_failed_in_active_period())
 
 	@property
-	def delivery_ratio(self):
+	def bundle_delivery_ratio(self):
 		return self.bundles_delivered_count / self.bundles_acquired_count
 
 	@property
-	def drop_ratio(self):
-		return 1 - self.delivery_ratio
+	def bundle_drop_ratio(self):
+		return 1 - self.bundle_delivery_ratio
+
+	@property
+	def traffic_load(self):
+		return self._traffic_load
+
+	@traffic_load.setter
+	def traffic_load(self, v):
+		self._traffic_load = v
