@@ -344,16 +344,13 @@ def cgr_yens(
     return routes
 
 
-def cgr_dijkstra(root_contact, destination, contact_plan, deadline=sys.maxsize, size=0):
+def cgr_dijkstra(
+        root_contact, destination, contact_plan, deadline=sys.maxsize, size=0
+) -> Route | None:
     """
     Finds the lowest cost Route from the current node to a destination node
     :return:
     """
-    # TODO Consider restricting which contacts are added to the CG, since for a
-    #  long time horizon with many contacts, this could become unnecessarily large.
-    # Set of contacts that have been visited during the contact plan search
-    # unvisited = [c.uid for c in self.contacts]
-
     # If there are no contacts from our root (i.e. there's nowhere for us to go), exit
     if root_contact.to not in [c.to for c in contact_plan]:
         return

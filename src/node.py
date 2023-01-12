@@ -275,8 +275,7 @@ class Node:
                         env,
                         contact.to,
                         contact.owlt,
-                        [t for t in self.task_table.values()
-                         if t.uid in self._task_table_updates[contact.to]]
+                        [self.task_table[t] for t in self._task_table_updates[contact.to]]
                     )
                 )
                 self._task_table_updates[contact.to] = []
@@ -343,7 +342,7 @@ class Node:
             env,
             to,
             delay,
-            [t for t in self.task_table.values() if t.uid in self._task_table_updates[to]]
+            [self.task_table[t] for t in self._task_table_updates[to]]
         ))
         self._task_table_updates[to] = []
 

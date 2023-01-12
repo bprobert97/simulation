@@ -2,7 +2,7 @@
 
 import sys
 from dataclasses import dataclass, field
-from typing import List
+from typing import List, Tuple
 
 from pubsub import pub
 
@@ -141,8 +141,10 @@ class Scheduler:
         if not self.define_delivery:
             self.resource_aware = False
 
-    def schedule_task(self, request: Request, curr_time: int | float, contact_plan: list,
-                      contact_plan_targets: list) -> Task | None:
+    def schedule_task(
+            self, request: Request, curr_time: int | float, contact_plan: list,
+            contact_plan_targets: list
+    ) -> Task | None:
         """
         Identify the contact, between a satellite & target, in which the request should
         be fulfilled and return a task that includes the necessary info. The process to do
@@ -175,7 +177,7 @@ class Scheduler:
             return self._create_task(request, curr_time)
 
         # Add target contacts to the Contact Plan
-        contact_plan.extend([c for c in contact_plan_targets if c.to == request.target_id])
+        # contact_plan.extend([c for c in contact_plan_targets if c.to == request.target_id])
 
         # If we need to check for a valid pickup, but NOT for a valid delivery,
         # we can just do a Dijkstra search to the first pick-up opportunity
@@ -184,7 +186,12 @@ class Scheduler:
                 self.parent.uid, self.parent.uid, self.parent.eid, curr_time,
                 sys.maxsize, sys.maxsize)
             root.arrival_time = curr_time
-            acq_path = cgr_dijkstra(root, request.target_id, contact_plan, request.deadline_acquire)
+            acq_path = cgr_dijkstra(
+                root,
+                request.target_id,
+                contact_plan + [c for c in contact_plan_targets if c.to == request.target_id],
+                request.deadline_acquire
+            )
             if not acq_path:
                 return None
 
@@ -193,15 +200,19 @@ class Scheduler:
 
         # If we've reached here, then we must need to check for both a valid
         # acquisition AND a valid delivery, so execute CGS to ensure this.
-        acq_path, del_path = self._cgs_routing(self.parent.uid, request, curr_time,
-                                               contact_plan)
+        acq_path, del_path = self._cgs_routing(
+            self.parent.uid,
+            request,
+            curr_time,
+            contact_plan + [c for c in contact_plan_targets if c.to == request.target_id]
+        )
 
         # Remove any contacts with this target before moving on, so that we don't clutter
-        [
-            contact_plan.remove(x) for x in [
-                c for c in contact_plan_targets if c.to == request.target_id
-            ]
-        ]
+        # [
+        #     contact_plan.remove(x) for x in [
+        #         c for c in contact_plan_targets if c.to == request.target_id
+        #     ]
+        # ]
 
         if acq_path and del_path:
             if self.resource_aware:
@@ -228,9 +239,9 @@ class Scheduler:
                 request, curr_time, assignee, pickup_time, delivery_time, acq_path_,
                 del_path_)
 
-
-    def _cgs_routing(self, src: int, request: Request, curr_time: int, contact_plan
-                     ) -> tuple:
+    def _cgs_routing(
+            self, src: int, request: Request, curr_time: int, contact_plan
+    ) -> Tuple[Route | None, Route | None] | None:
         """
         Find the acquisition and delivery paths such that the data is delivered at the
         earliest opportunity.
