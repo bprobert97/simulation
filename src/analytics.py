@@ -4,7 +4,7 @@ from statistics import mean, stdev
 
 
 class Analytics:
-	def __init__(self, sim_time, ignore_start=0, ignore_end=0):
+	def __init__(self, sim_time, ignore_start=0, ignore_end=0, inputs=None):
 		self.start = ignore_start
 		self.end = sim_time - ignore_end
 		self.requests = {}
@@ -18,11 +18,12 @@ class Analytics:
 
 		self._traffic_load = None
 
+		self.inputs = inputs
+
 	# *************************** LATENCIES *******************************
 	@property
 	def pickup_latencies(self):
-		"""List of times between request submission and bundle creation for all bundles
-
+		"""List of times between request submission and bundle creation for dlvrd bundles.
 		"""
 		return [
 			b.created_at - b.task.requests[0].time_created
@@ -46,9 +47,9 @@ class Analytics:
 		return [
 			b.delivered_at - b.created_at
 			for b in self.get_bundles_delivered_in_active_period()
-		] + [
-			b.deadline - b.created_at
-			for b in self.get_bundles_failed_in_active_period()
+		# ] + [
+		# 	b.deadline - b.created_at
+		# 	for b in self.get_bundles_failed_in_active_period()
 		]
 
 	@property
@@ -108,6 +109,10 @@ class Analytics:
 		return len(self.get_all_requests_in_active_period())
 
 	@property
+	def requests_rejected_count(self):
+		return self.requests_submitted_count - self.tasks_processed_count
+
+	@property
 	def requests_delivered_count(self):
 		return len(self.get_delivered_requests_in_active_period())
 
@@ -117,6 +122,9 @@ class Analytics:
 
 	@property
 	def request_delivery_ratio(self):
+		"""
+		The fraction of "submitted" requests for which a bundle was delivered
+		"""
 		return self.requests_delivered_count / self.requests_submitted_count
 
 	@property
@@ -174,8 +182,16 @@ class Analytics:
 	def tasks_failed_count(self):
 		return len(self.get_tasks_failed_in_active_period())
 
+	@property
+	def task_delivery_ratio(self):
+		"""
+		The fraction of "accepted" requests, i.e. those for which a task was created,
+		for which a bundle was delivered.
+		"""
+		return self.requests_delivered_count / self.tasks_processed_count
+
 	# *************************** BUNDLES *************************
-	def add_bundle(self, b):
+	def acquire_bundle(self, b):
 		self.bundles.append(b)
 		# There's a chance the task to which this bundle relates, has already been
 		# "acquired", so check first and only update if it's the first time

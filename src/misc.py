@@ -2,7 +2,7 @@ __author__ = "Christopher Lowe"
 
 
 # from Lib import random
-from math import pi, sin, cos, tan, asin, atan2, sqrt, radians
+from math import pi, sin, cos, tan, asin, atan2, sqrt, radians, ceil
 from numpy import dot
 from random import random, randint, choice
 import string
@@ -597,3 +597,7 @@ def ground_nodes_load(file_name):
                 }
             )
     return nodes
+
+
+def my_ceil(x, base=10):
+    return base * ceil(x/base)

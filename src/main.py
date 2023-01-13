@@ -153,21 +153,21 @@ def create_route_tables(nodes, destinations, t_now=0) -> None:
 			)
 
 
-def init_analytics(duration, ignore_start=0, ignore_end=0):
+def init_analytics(duration, ignore_start=0, ignore_end=0, inputs=None):
 	"""The analytics module tracks events that occur during the simulation.
 
 	This includes keeping a log of every request, task and bundle object, and counting
 	the number of times a specific movement is made (e.g. forwarding, dropping,
 	state transition etc).
 	"""
-	a = Analytics(duration, ignore_start, ignore_end)
+	a = Analytics(duration, ignore_start, ignore_end, inputs)
 
 	pub.subscribe(a.submit_request, "request_submit")
 
 	pub.subscribe(a.add_task, "task_add")
 	pub.subscribe(a.fail_task, "task_failed")
 
-	pub.subscribe(a.add_bundle, "bundle_acquired")
+	pub.subscribe(a.acquire_bundle, "bundle_acquired")
 	pub.subscribe(a.deliver_bundle, "bundle_delivered")
 	pub.subscribe(a.drop_bundle, "bundle_dropped")
 
@@ -378,7 +378,7 @@ def main(inputs_, scheme: List = None):
 	print("Route tables constructed")
 
 	# Set up the analytics module.
-	analytics_ = init_analytics(full_duration, warm_up, cool_down)
+	analytics_ = init_analytics(full_duration, warm_up, cool_down, inputs_)
 
 	# ************************ BEGIN THE SIMULATION PROCESS ************************
 	# Initiate the simpy environment, which keeps track of the event queue and triggers

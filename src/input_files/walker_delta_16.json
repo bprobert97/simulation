@@ -1,9 +1,9 @@
 {
   "test": false,
   "plot": false,
-  "debug": true,
+  "debug": false,
   "simulation": {
-    "duration": 10000,
+    "duration": 30000,
     "date_start": 2459659.005,
     "step_size": 10,
     "filename": "test_0",
@@ -11,8 +11,8 @@
   },
   "traffic": {
     "size": 10,
-    "max_time_to_acquire": 7200,
-    "max_time_to_deliver": 3600,
+    "max_time_to_acquire": 10800,
+    "max_time_to_deliver": 7200,
     "priority": 0,
     "congestion": 0.1,
     "msr": true

@@ -2,86 +2,100 @@ import pickle
 import matplotlib.pyplot as plt
 import numpy as np
 import itertools
+from statistics import mean, stdev
+from misc import my_ceil
 
-if __name__ == "__main__":
-	latency_full_mean = []
-	latency_full_stdv = []
-	latency_del_mean = []
-	latency_del_stdv = []
-	latency_task_mean = []
-	delivery_ratio = []
-	congestions = [0.1, 0.3, 0.5, 0.7, 0.9]
-	schemes = ["naive", "first", "cgs_cgr", "cgs_cgr_resource", "cgs_msr"]
-	for scheme, con in itertools.product(schemes, congestions):
-		filename = f"results//results_{scheme}_{con}"
-		results = pickle.load(open(filename, "rb"))
-		latency_full_mean.append(results.request_latency_ave)
-		latency_full_stdv.append(results.request_latency_stdev)
-		latency_del_mean.append(results.delivery_latency_ave)
-		latency_del_stdv.append(results.delivery_latency_stdev)
-		latency_task_mean.append(results.pickup_latency_ave)
-		delivery_ratio.append(results.bundle_delivery_ratio)
 
-	plt.style.use('_mpl-gallery')
+congestions = [round(x, 1) for x in np.linspace(0.1, 0.9, 9)]
+# congestions = [0.2, 0.6, 1.0]
 
-	x = np.array(congestions)
-	y_request = np.array(latency_full_mean)
-	y_request_upper = np.array([x[0] + x[1] for x in zip(latency_full_mean, latency_full_stdv)])
-	y_request_lower = np.array([x[0] - x[1] for x in zip(latency_full_mean, latency_full_stdv)])
+schemes = {
+	# "naive": {"colour": "black"},
+	"first": {"colour": "blue"},
+	"cgs_cgr": {"colour": "red"},
+	"cgs_cgr_resource": {"colour": "green"},
+	"cgs_msr": {"colour": "orange"}
+}
 
-	y_task = np.array(latency_task_mean)
+request_latency = {"row": 0, "col": 0, "y_label": "Request latency", "max": 0, "tick": 1000}
+task_latency = {"row": 0, "col": 1, "y_label": "Pickup latency", "max": 0, "tick": 1000}
+bundle_latency = {"row": 0, "col": 2, "y_label": "Bundle latency", "max": 0, "tick": 1000}
 
-	y_delivery = np.array(latency_del_mean)
-	y_delivery_upper = np.array([x[0] + x[1] for x in zip(latency_del_mean, latency_del_stdv)])
-	y_delivery_lower = np.array([x[0] - x[1] for x in zip(latency_del_mean, latency_del_stdv)])
+request_ratio = {"row": 1, "col": 0, "y_label": "Request ratio", "max": 1, "tick": 0.1}
+task_ratio = {"row": 1, "col": 1, "y_label": "Delivery ratio", "max": 1, "tick": 0.1}
+delivery_ratio = {"row": 1, "col": 2, "y_label": "Delivery ratio", "max": 1, "tick": 0.1}
 
-	# np.random.seed(1)
-	# x = np.linspace(0, 8, 16)
-	# y1 = 3 + 4 * x / 8 + np.random.uniform(0.0, 0.5, len(x))
-	# y2 = 1 + 2 * x / 8 + np.random.uniform(0.0, 0.5, len(x))
+requests_accepted = {"row": 2, "col": 0, "y_label": "No. requests accepted", "max": 0, "tick": 100}
+requests_rejected = {"row": 2, "col": 1, "y_label": "No. requests rejected", "max": 0, "tick": 100}
+requests_delivered = {"row": 2, "col": 2, "y_label": "No. requests delivered", "max": 0, "tick": 100}
 
-	# Latency plot
-	fig, ax = plt.subplots(2, 2)
-	# fig.suptitle('Performance vs. traffic load')
+metrics = [
+	request_latency,
+	task_latency,
+	bundle_latency,
+	request_ratio,
+	task_ratio,
+	delivery_ratio,
+	requests_accepted,
+	requests_rejected,
+	requests_delivered,
+]
 
-	ax[0, 0].plot(x, y_request, linewidth=2)
-	# ax[0, 0].fill_between(x, y_request_upper, y_request_lower, alpha=.25, linewidth=0)
+for metric in metrics:
+	for scheme in schemes:
+		metric[scheme] = []
 
-	ax[0, 1].plot(x, y_task, linewidth=2, color="green")
-	# ax[0, 0].fill_between(x, y_delivery_upper, y_delivery_lower, alpha=.25, linewidth=0, color="green")
+for scheme, con in itertools.product(schemes, congestions):
+	filename = f"results//results_{scheme}_{con}"
+	results = pickle.load(open(filename, "rb"))
 
-	ax[1, 0].plot(x, y_delivery, linewidth=2, color="orange")
+	request_latency[scheme].append(mean(results.request_latencies))
+	task_latency[scheme].append(mean(results.pickup_latencies))
+	bundle_latency[scheme].append(mean(results.delivery_latencies))
 
-	ax[1, 1].plot(x, np.array(delivery_ratio), linewidth=2, color="purple")
+	request_ratio[scheme].append(results.request_delivery_ratio)
+	task_ratio[scheme].append(results.task_delivery_ratio)
+	delivery_ratio[scheme].append(results.bundle_delivery_ratio)
 
-	ax[0, 0].set(
-		xlim=(0, 1), xticks=np.arange(0, 1.1, 0.1),
-		ylim=(0, 12000), yticks=np.arange(0, 13000, 2000)
-	)
+	requests_accepted[scheme].append(results.tasks_processed_count)
+	requests_rejected[scheme].append(results.requests_rejected_count)
+	requests_delivered[scheme].append(results.requests_delivered_count)
+	# Hop count
 
-	ax[0, 1].set(
-		xlim=(0, 1), xticks=np.arange(0, 1.1, 0.1),
-		ylim=(0, 8000), yticks=np.arange(0, 9000, 1000)
-	)
+	request_latency["max"] = max(request_latency["max"], mean(results.request_latencies))
+	task_latency["max"] = max(task_latency["max"], mean(results.pickup_latencies))
+	bundle_latency["max"] = max(bundle_latency["max"], mean(results.delivery_latencies))
 
-	ax[1, 0].set(
-		xlim=(0, 1), xticks=np.arange(0, 1.1, 0.1),
-		ylim=(0, 4000), yticks=np.arange(0, 5000, 1000)
-	)
+	request_ratio["max"] = max(request_ratio["max"], results.request_delivery_ratio)
+	task_ratio["max"] = max(task_ratio["max"], results.task_delivery_ratio)
+	delivery_ratio["max"] = max(delivery_ratio["max"], results.bundle_delivery_ratio)
 
-	ax[1, 1].set(
-		xlim=(0, 1), xticks=np.arange(0, 1.1, 0.1),
-		ylim=(0, 1), yticks=np.arange(0, 1.1, 0.2)
-	)
+	requests_accepted["max"] = max(requests_accepted["max"], results.tasks_processed_count)
+	requests_rejected["max"] = max(requests_rejected["max"], results.requests_rejected_count)
+	requests_delivered["max"] = max(requests_delivered["max"], results.requests_delivered_count)
 
-	ax[1, 0].set_xlabel("Congestion")
-	ax[1, 1].set_xlabel("Congestion")
-	ax[0, 0].set_ylabel("Total latency (s)")
-	ax[0, 1].set_ylabel("Task latency (s)")
-	ax[1, 0].set_ylabel("Bundle latency (s)")
-	ax[1, 1].set_ylabel("Delivery ratio")
+plt.style.use('_mpl-gallery')
+fig, ax = plt.subplots(3, 3)
 
-	# for a in ax.flat:
-	# 	a.label_outer()
+for scheme, props in schemes.items():
+	for metric in metrics:
+		ax[metric["row"], metric["col"]].plot(
+			congestions, metric[scheme], linewidth=1, color=props["colour"]
+		)
+		# Pick-up latency, from Request to Pickup
+		ax[metric["row"], metric["col"]].set(
+			xlim=(0, 1), xticks=np.arange(0, 1.1, 0.1),
+			ylim=(0, metric["max"]),
+			yticks=np.arange(0, metric["max"] + metric["tick"], metric["tick"])
+		)
 
-	plt.show()
+		ax[metric["row"], metric["col"]].set_ylabel(metric["y_label"])
+
+ax[2, 0].set_xlabel("Congestion")
+ax[2, 1].set_xlabel("Congestion")
+ax[2, 2].set_xlabel("Congestion")
+
+# for a in ax.flat:
+# 	a.label_outer()
+
+plt.show()
