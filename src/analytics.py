@@ -128,6 +128,9 @@ class Analytics:
 		self.tasks[t.uid] = t
 
 	def fail_task(self, task, t, on):
+		# If this task has already been fulfilled elsewhere, don't set to failed
+		if self.tasks[task].status == "delivered":
+			return
 		self.tasks[task].failed(t, on)
 		self.requests[self.tasks[task].request_ids[0]].status = "failed"
 
@@ -174,17 +177,32 @@ class Analytics:
 	# *************************** BUNDLES *************************
 	def add_bundle(self, b):
 		self.bundles.append(b)
-		self.requests[b.task.request_ids[0]].status = "acquired"
-		self.tasks[b.task_id].acquired(b.created_at, b.src)
+		# There's a chance the task to which this bundle relates, has already been
+		# "acquired", so check first and only update if it's the first time
+		if self.tasks[b.task_id].status != "acquired":
+			self.requests[b.task.request_ids[0]].status = "acquired"
+			self.tasks[b.task_id].acquired(b.created_at, b.src)
+		# else:
+		# 	print("")
 
 	def deliver_bundle(self, b):
 		self.bundles_delivered.append(b)
-		self.requests[b.task.request_ids[0]].status = "delivered"
-		self.tasks[b.task.uid].delivered(b.delivered_at, b.previous_node, b.current)
+		# There's a chance the task to which this bundle relates, has already been
+		# "delivered", so check first and only update if it's the first time
+		if self.tasks[b.task_id].status != "delivered":
+			self.requests[b.task.request_ids[0]].status = "delivered"
+			self.tasks[b.task.uid].delivered(b.delivered_at, b.previous_node, b.current)
+		# else:
+		# 	print("")
 
 	def drop_bundle(self, b):
 		self.bundles_failed.append(b)
-		self.fail_task(b.task.uid, b.dropped_at, b.current)
+		# There's a chance the task to which this bundle relates, has already been
+		# "delivered", so check first and only update if it's the first time
+		if self.tasks[b.task_id].status != "failed":
+			self.fail_task(b.task.uid, b.dropped_at, b.current)
+		# else:
+		# 	print("")
 
 	def get_all_bundles_in_active_period(self):
 		"""

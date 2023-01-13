@@ -702,6 +702,7 @@ class Node:
         """
         Compare two task tables and return one with the most up to dat information
         """
+        # print(f"merging tasks from {frm} onto {self.uid}")
         # Extract the IDs of the tasks present on both tables
         shared_tasks = self.task_table.keys() & tt_other.keys()
 
@@ -713,3 +714,15 @@ class Node:
                     continue
             self.task_table[task_id] = deepcopy(task)
             self._update_task_change_tracker(task_id, excluded=[frm])
+
+            # If the task we've just updated is now shown as "delivered", we should
+            # check our buffer to see if we have a bundle in there for this task. If
+            # so, we can remove it from our buffer since it has been delivered from
+            # elsewhere.
+            # if task.status == "delivered" and task_id in [b.task_id for b in self.buffer.bundles]:
+            #     print('')
+                # self.buffer.bundles.pop(
+                #     self.buffer.bundles.index(
+                #         [b for b in self.buffer.bundles if b.task_id == task_id][0]
+                #     )
+                # )
