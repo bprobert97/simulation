@@ -1,0 +1,63 @@
+{
+  "test": false,
+  "plot": false,
+  "debug": true,
+  "simulation": {
+    "duration": 86400,
+    "date_start": 2459659.005,
+    "step_size": 10,
+    "filename": "test_0",
+    "description": "Simulation of two polar satellites and an equatorial satellite, with a gateway at each of the poles. The eq. sat can access download capacity through relay via one of the polar sats"
+  },
+  "bundles": {
+    "size": 10,
+    "lifetime": 5000,
+    "priority": 0
+  },
+  "targets": {
+    "type": "bespoke",
+    "name": "equatorial",
+    "min_el": 60,
+    "locations": [
+      {"lat": 0.0, "lon": 20.0, "alt": 0.0},
+      {"lat": 0.0, "lon": 70.0, "alt": 0}
+    ]
+  },
+  "gateways": {
+    "type": "bespoke",
+    "name": "gateways",
+    "min_el": 10,
+    "rate": 0,
+    "power_tx": 100,
+    "power_rx": 25,
+    "locations": [
+      {"lat": -90.0, "lon": 0.0, "alt": 0.0, "name": "south_pole"}
+    ]
+  },
+  "satellites": {
+    "name": "polar",
+    "dist_isl": 3000000,
+    "rate_isl": 4,
+    "rate_s2g": 2,
+    "storage": 1000000,
+    "orbits": [
+      {
+        "sma": 7130.3,
+        "inc": 90.0,
+        "ecc": 0.0,
+        "raan": 0.0,
+        "aop": 0.0,
+        "ta": 0.0,
+        "name": "polar_sat_1"
+      }, {
+        "sma": 7130.3,
+        "inc": 0.0,
+        "ecc": 0.0,
+        "raan": 0.0,
+        "aop": 0.0,
+        "ta": 0.0,
+        "name": "eq_sat_1"
+      }
+    ]
+  }
+}
