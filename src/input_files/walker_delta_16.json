@@ -3,14 +3,14 @@
   "plot": false,
   "debug": false,
   "simulation": {
-    "duration": 30000,
-    "date_start": 2459659.005,
+    "duration": 36000,
+    "date_start": 2459946.0,
     "step_size": 10,
     "filename": "test_0",
     "description": "Example as defined in 'Assessing Contact Graph Routing Performance and Reliability in Distributed Satellite Constellations' by Fraire et al. 2017"
   },
   "traffic": {
-    "size": 10,
+    "size": 25,
     "max_time_to_acquire": 10800,
     "max_time_to_deliver": 7200,
     "priority": 0,
@@ -85,7 +85,7 @@
       {"sma": 6878.14, "inc": 50.0, "ecc": 0.0, "raan": 270.0, "aop": 0.0, "ta": 67.619, "name": "plane_D_sat_1"},
       {"sma": 6878.14, "inc": 50.0, "ecc": 0.0, "raan": 270.0, "aop": 0.0, "ta": 157.619, "name": "plane_D_sat_2"},
       {"sma": 6878.14, "inc": 50.0, "ecc": 0.0, "raan": 270.0, "aop": 0.0, "ta": 247.619, "name": "plane_D_sat_3"},
-      {"sma": 6878.14, "inc": 50.0, "ecc": 0.0, "raan": 90.0, "aop": 0.0, "ta": 337.619, "name": "plane_D_sat_4"}
+      {"sma": 6878.14, "inc": 50.0, "ecc": 0.0, "raan": 270.0, "aop": 0.0, "ta": 337.619, "name": "plane_D_sat_4"}
     ]
   }
 }

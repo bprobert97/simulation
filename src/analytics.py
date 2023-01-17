@@ -20,6 +20,43 @@ class Analytics:
 
 		self.inputs = inputs
 
+	# *************************** CRUD operations *************************
+	def submit_request(self, r):
+		self.requests[r.uid] = r
+
+	def add_task(self, t):
+		self.tasks[t.uid] = t
+
+	def fail_task(self, task, t, on):
+		# If this task has already been fulfilled elsewhere, don't set to failed
+		if self.tasks[task].status == "delivered":
+			return
+		self.tasks[task].failed(t, on)
+		self.requests[self.tasks[task].request_ids[0]].status = "failed"
+
+	def acquire_bundle(self, b):
+		self.bundles.append(b)
+		# There's a chance the task to which this bundle relates, has already been
+		# "acquired", so check first and only update if it's the first time
+		if self.tasks[b.task_id].status != "acquired":
+			self.requests[b.task.request_ids[0]].status = "acquired"
+			self.tasks[b.task_id].acquired(b.created_at, b.src)
+
+	def deliver_bundle(self, b):
+		# If the request has already been delivered, skip
+		if self.requests[b.task.request_ids[0]].status == "delivered":
+			return
+		self.bundles_delivered.append(b)
+		self.requests[b.task.request_ids[0]].status = "delivered"
+		self.tasks[b.task.uid].delivered(b.delivered_at, b.previous_node, b.current)
+
+	def drop_bundle(self, b):
+		self.bundles_failed.append(b)
+		# There's a chance the task to which this bundle relates, has already been
+		# "delivered", so check first and only update if it's the first time
+		if self.tasks[b.task_id].status != "failed":
+			self.fail_task(b.task.uid, b.dropped_at, b.current)
+
 	# *************************** LATENCIES *******************************
 	@property
 	def pickup_latencies(self):
@@ -93,9 +130,6 @@ class Analytics:
 		return mean([b.hop_count for b in bundles])
 
 	# ****************************** REQUESTS ********************************
-	def submit_request(self, r):
-		self.requests[r.uid] = r
-
 	def get_all_requests_in_active_period(self):
 		return [
 			r for r in self.requests.values()
@@ -144,16 +178,6 @@ class Analytics:
 		return self.requests_failed_count / self.requests_submitted_count
 
 	# ************************ TASKS ****************************
-	def add_task(self, t):
-		self.tasks[t.uid] = t
-
-	def fail_task(self, task, t, on):
-		# If this task has already been fulfilled elsewhere, don't set to failed
-		if self.tasks[task].status == "delivered":
-			return
-		self.tasks[task].failed(t, on)
-		self.requests[self.tasks[task].request_ids[0]].status = "failed"
-
 	def get_tasks_generated_in_active_period(self):
 		return [
 			t for t in self.tasks.values()
@@ -203,29 +227,6 @@ class Analytics:
 		return self.requests_delivered_count / self.tasks_processed_count
 
 	# *************************** BUNDLES *************************
-	def acquire_bundle(self, b):
-		self.bundles.append(b)
-		# There's a chance the task to which this bundle relates, has already been
-		# "acquired", so check first and only update if it's the first time
-		if self.tasks[b.task_id].status != "acquired":
-			self.requests[b.task.request_ids[0]].status = "acquired"
-			self.tasks[b.task_id].acquired(b.created_at, b.src)
-
-	def deliver_bundle(self, b):
-		# If the request has already been delivered, skip
-		if self.requests[b.task.request_ids[0]].status == "delivered":
-			return
-		self.bundles_delivered.append(b)
-		self.requests[b.task.request_ids[0]].status = "delivered"
-		self.tasks[b.task.uid].delivered(b.delivered_at, b.previous_node, b.current)
-
-	def drop_bundle(self, b):
-		self.bundles_failed.append(b)
-		# There's a chance the task to which this bundle relates, has already been
-		# "delivered", so check first and only update if it's the first time
-		if self.tasks[b.task_id].status != "failed":
-			self.fail_task(b.task.uid, b.dropped_at, b.current)
-
 	def get_all_bundles_in_active_period(self):
 		"""
 		Return list of all bundles originating from requests in active period

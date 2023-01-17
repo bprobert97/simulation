@@ -314,6 +314,7 @@ def build_moc(cp, cpt, sats, gws, scheme: List = None):
 
 
 def main(inputs_, scheme: List = None):
+	pub.unsubAll()
 	random.seed(0)
 
 	# Time for the clean network to reach a steady state

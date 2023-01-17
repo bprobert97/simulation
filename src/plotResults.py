@@ -9,16 +9,16 @@ from statistics import mean, stdev
 from misc import my_ceil
 
 
-# congestions = [round(x, 1) for x in np.linspace(0.1, 0.9, 9)]
-# congestions.extend([1.5, 2.0])
-congestions = [0.2]
+congestions = [round(x, 1) for x in np.linspace(0.1, 0.9, 9)]
+congestions.extend([1.5, 2.0])
+# congestions = [0.5]
 
 schemes = {
 	"naive": {"colour": "black"},
-	# "first": {"colour": "blue"},
-	# "cgs_cgr": {"colour": "red"},
-	# "cgs_cgr_resource": {"colour": "green"},
-	# "cgs_msr": {"colour": "orange"}
+	"first": {"colour": "blue"},
+	"cgs_cgr": {"colour": "red"},
+	"cgs_cgr_resource": {"colour": "green"},
+	"cgs_msr": {"colour": "orange"}
 }
 
 request_latency = {"row": 0, "col": 0, "y_label": "Total latency", "max": 0, "tick": 1000}
@@ -30,7 +30,7 @@ task_ratio = {"row": 1, "col": 1, "y_label": "Pickup ratio", "max": 1, "tick": 0
 delivery_ratio = {"row": 1, "col": 2, "y_label": "Delivery ratio", "max": 1, "tick": 0.1}
 
 requests_accepted = {"row": 2, "col": 0, "y_label": "No. requests accepted", "max": 0, "tick": 1000}
-requests_rejected = {"row": 2, "col": 1, "y_label": "No. requests rejected", "max": 0, "tick": 100}
+requests_rejected = {"row": 2, "col": 1, "y_label": "No. requests rejected", "max": 0, "tick": 1000}
 requests_delivered = {"row": 2, "col": 2, "y_label": "No. requests delivered", "max": 0, "tick": 1000}
 
 metrics = [
