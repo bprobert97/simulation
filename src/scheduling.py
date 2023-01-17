@@ -138,8 +138,6 @@ class Scheduler:
         if not self.valid_delivery:
             self.define_delivery = False
             self.resource_aware = False
-        if not self.define_delivery:
-            self.resource_aware = False
 
     def schedule_task(
             self, request: Request, curr_time: int | float, contact_plan: list,

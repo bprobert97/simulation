@@ -317,7 +317,7 @@ def main(inputs_, scheme: List = None):
 	random.seed(0)
 
 	# Time for the clean network to reach a steady state
-	warm_up = 5000
+	warm_up = 10800
 
 	# Time after which we ignore any new requests in the analysis
 	cool_down = 2 * (

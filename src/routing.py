@@ -627,10 +627,9 @@ def candidate_routes(curr_time, curr_node, contact_plan, bundle, routes,
             # over-lapping contacts, this won't always be true. However, this offers a
             # fast check to make sure we're not over-subscribing the contact,
             # in a best-case scenario.
-            # TODO Make this priority specific
-            if contact.volume < bundle.size:
-                if debug:
-                    print("not candidate: route depleted for bundle priority")
+            if contact.mav[bundle.priority] < bundle.size:
+                # FIXME This doesn't actually do anything as inside the for loop. Same
+                #  for the one above...
                 continue
 
         # 3.2.6.9 d) calculate eto and if it is later than 1st contact end time, ignore

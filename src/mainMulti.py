@@ -6,18 +6,20 @@ import numpy as np
 import pickle
 
 from main import main
+import misc as _misc
 
-# [define_pickup, valid_delivery, resource_aware, define_delivery]
+# [valid_pickup, define_pickup, valid_delivery, resource_aware, define_delivery]
 schemes = {
-	# "naive": [False, False, False, False, False],
-	"first": [True, True, False, False, False],
-	"cgs_cgr": [True, True, True, False, False],
-	"cgs_cgr_resource": [True, True, True, True, False],
-	"cgs_msr": [True, True, True, True, True],
+	"naive":              [False, False, False, False, False],
+	# "first":              [True,  True,  False, False, False],
+	# "cgs_cgr":            [True,  True,  True,  False, False],
+	# "cgs_cgr_resource":   [True,  True,  True,  True,  False],
+	# "cgs_msr":            [True,  True,  True,  True,  True],
 }
 
-congestions = np.linspace(0.1, 0.9, 9)
-# congestions = [0.5]
+congestions = [0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.5, 2.]
+# congestions = np.linspace(0.1, 0.9, 3)
+# congestions = [0.2]
 
 filename = "input_files//walker_delta_16.json"
 with open(filename, "rb") as read_content:
@@ -25,7 +27,7 @@ with open(filename, "rb") as read_content:
 
 for con in congestions:
 	for scheme_name, scheme in schemes.items():
-
+		_misc.USED_IDS = set()
 		inputs.traffic.congestion = con
 		inputs.traffic.msr = True if scheme[4] else False
 		analytics = main(inputs, scheme)

@@ -78,7 +78,7 @@ class Bundle:
 		priority: Level of priority, higher value = higher priority. 0 = "Bulk",
 			1 = normal, 2 = expedited
 		critical: If True, the bundle is of "critical" type
-		fragment: If True, the bundle must not be fragmented
+		fragment: If True, the bundle may be fragmented
 		task_id: Unique ID of the task to which this bundle is linked
 		obey_route: Flag indicating whether (True) or not (False) this bundle must ONLY
 			traverse the route to which it has been assigned, or if it can be forwarded
@@ -96,7 +96,7 @@ class Bundle:
 	deadline: int = sys.maxsize
 	priority: int = 0  #
 	critical: bool = False
-	fragment: bool = True
+	fragment: bool = False
 	task_id: str | int = None
 	task: Task = None
 	obey_route: bool = False

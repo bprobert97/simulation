@@ -31,6 +31,15 @@ class Analytics:
 		]
 
 	@property
+	def pickup_latencies_delivered(self):
+		"""List of times between request submission and bundle creation for dlvrd bundles.
+		"""
+		return [
+			b.created_at - b.task.requests[0].time_created
+			for b in self.get_bundles_delivered_in_active_period()
+		]
+
+	@property
 	def pickup_latency_ave(self):
 		return mean(self.pickup_latencies)
 
@@ -64,7 +73,10 @@ class Analytics:
 	def request_latencies(self):
 		# List of times between bundle delivery and request submission
 		return [
-			x[0] + x[1] for x in zip(self.pickup_latencies, self.delivery_latencies)
+			x[0] + x[1] for x in zip(
+				self.pickup_latencies_delivered,
+				self.delivery_latencies
+			)
 		]
 
 	@property
@@ -198,18 +210,14 @@ class Analytics:
 		if self.tasks[b.task_id].status != "acquired":
 			self.requests[b.task.request_ids[0]].status = "acquired"
 			self.tasks[b.task_id].acquired(b.created_at, b.src)
-		# else:
-		# 	print("")
 
 	def deliver_bundle(self, b):
+		# If the request has already been delivered, skip
+		if self.requests[b.task.request_ids[0]].status == "delivered":
+			return
 		self.bundles_delivered.append(b)
-		# There's a chance the task to which this bundle relates, has already been
-		# "delivered", so check first and only update if it's the first time
-		if self.tasks[b.task_id].status != "delivered":
-			self.requests[b.task.request_ids[0]].status = "delivered"
-			self.tasks[b.task.uid].delivered(b.delivered_at, b.previous_node, b.current)
-		# else:
-		# 	print("")
+		self.requests[b.task.request_ids[0]].status = "delivered"
+		self.tasks[b.task.uid].delivered(b.delivered_at, b.previous_node, b.current)
 
 	def drop_bundle(self, b):
 		self.bundles_failed.append(b)
@@ -217,8 +225,6 @@ class Analytics:
 		# "delivered", so check first and only update if it's the first time
 		if self.tasks[b.task_id].status != "failed":
 			self.fail_task(b.task.uid, b.dropped_at, b.current)
-		# else:
-		# 	print("")
 
 	def get_all_bundles_in_active_period(self):
 		"""
