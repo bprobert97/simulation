@@ -125,7 +125,12 @@ class Analytics:
 		return stdev(self.request_latencies)
 
 	@property
-	def hop_count_average(self):
+	def hop_count_average_all(self):
+		bundles = self.get_all_bundles_in_active_period()
+		return mean([b.hop_count for b in bundles])
+
+	@property
+	def hop_count_average_delivered(self):
 		bundles = self.get_bundles_delivered_in_active_period()
 		return mean([b.hop_count for b in bundles])
 
@@ -156,6 +161,7 @@ class Analytics:
 
 	@property
 	def requests_rejected_count(self):
+		# The number of requests that were not converted into tasks
 		return self.requests_submitted_count - self.tasks_processed_count
 
 	@property
@@ -164,7 +170,9 @@ class Analytics:
 
 	@property
 	def requests_failed_count(self):
-		return len(self.get_failed_requests_in_active_period())
+		# the number of requests that were converted into tasks, but not delivered
+		# return len(self.get_failed_requests_in_active_period())
+		return self.tasks_processed_count - self.requests_delivered_count
 
 	@property
 	def request_delivery_ratio(self):

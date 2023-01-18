@@ -45,6 +45,7 @@ class Node:
     route_table: Dict = field(init=False, default_factory=dict)
     request_queue: List = field(init=False, default_factory=list)
     handled_requests: List = field(init=False, default_factory=list)
+    rejected_requests: List = field(init=False, default_factory=list)
     failed_requests: List = field(init=False, default_factory=list)
     task_table: Dict = field(init=False, default_factory=dict)
     drop_list: List = field(init=False, default_factory=list)
@@ -148,7 +149,9 @@ class Node:
         # TODO add in some exception that handles a lack of feasible acquisition
         # print(f"No task was created for request {request.uid} as either acquisition "
         #    f"or delivery wasn't feasible")
+        # TODO Separate the "failed" requests from those that are rejected up front
         request.status = "failed"
+        # self.rejected_requests.append(request)
         self.failed_requests.append(request)
         return False
 
