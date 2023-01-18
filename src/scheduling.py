@@ -313,6 +313,10 @@ class Scheduler:
             # )
             # root_delivery.arrival_time = earliest_next_contact
 
+            # TODO Since this element of CGS is actually selecting the route
+            #  along which forwarding should occur, we should really carry out
+            #  the full candidate route selection, although only need to find
+            #  the best route.
             root_delivery = Contact(
                 path_acq.hops[-1].frm,
                 path_acq.hops[-1].frm,
