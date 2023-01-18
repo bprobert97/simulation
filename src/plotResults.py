@@ -9,9 +9,9 @@ from statistics import mean, stdev
 from misc import my_ceil
 
 
-# congestions = [round(x, 1) for x in np.linspace(0.1, 0.9, 9)]
-# congestions.extend([round(x, 1) for x in np.linspace(1.0, 2.0, 6)])
-congestions = [0.1]
+congestions = [round(x, 1) for x in np.linspace(0.1, 0.9, 9)]
+congestions.extend([round(x, 1) for x in np.linspace(1.0, 2.0, 6)])
+# congestions = [0.1]
 
 schemes = {
 	# "naive": {"colour": "black"},
@@ -22,8 +22,8 @@ schemes = {
 }
 
 uncertainties = {
-	# 0.7: {"linestyle": "dotted"},
-	# 0.8: {"linestyle": "dashdot"},
+	0.7: {"linestyle": "dotted"},
+	0.8: {"linestyle": "dashdot"},
 	0.9: {"linestyle": "dashed"},
 	1.0: {"linestyle": "solid"}
 }
