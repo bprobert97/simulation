@@ -110,7 +110,7 @@ def bundle_generator(env, sources, destinations):
 		pub.sendMessage("bundle_acquired", b=b)
 
 
-def init_space_nodes(nodes, cp, cpwt, msr=True):
+def init_space_nodes(nodes, cp, cpwt, msr=True, uncertainty: float = 1.0):
 	node_ids = [x for x in nodes]
 	# TODO more generalised way to do this??
 	node_ids.append(SCHEDULER_ID)
@@ -127,7 +127,8 @@ def init_space_nodes(nodes, cp, cpwt, msr=True):
 			outbound_queue={x: [] for x in node_ids},
 			contact_plan=deepcopy(cp),
 			contact_plan_targets=deepcopy(cpwt),
-			msr=msr
+			msr=msr,
+			uncertainty=uncertainty
 		)
 		#
 		pub.subscribe(n.bundle_receive, str(n_uid) + "bundle")
@@ -313,7 +314,7 @@ def build_moc(cp, cpt, sats, gws, scheme: List = None):
 	return moc
 
 
-def main(inputs_, scheme: List = None):
+def main(inputs_, scheme: List = None, uncertainty: float = 1.0):
 	pub.unsubAll()
 	random.seed(0)
 
@@ -369,7 +370,8 @@ def main(inputs_, scheme: List = None):
 		{**satellites, **gateways},
 		cp_wo_targets,
 		cp_only_targets,
-		inputs_.traffic.msr
+		inputs_.traffic.msr,
+		uncertainty
 	)
 
 	create_route_tables(

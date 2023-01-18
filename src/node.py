@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-
+import random
 import sys
 from dataclasses import dataclass, field
 from typing import List, Dict, Set
@@ -39,6 +39,7 @@ class Node:
     contact_plan_targets: List = field(default_factory=list)
     request_duplication: bool = False
     msr: bool = True
+    uncertainty: float = 1.0
 
     _bundle_assign_repeat: int = field(init=False, default=BUNDLE_ASSIGN_REPEAT_TIME)
     _outbound_repeat_interval: int = field(init=False, default=OUTBOUND_QUEUE_INTERVAL)
@@ -272,7 +273,10 @@ class Node:
         """
         if DEBUG:
             print(f"contact started on {self.uid} with {contact.to} at {env.now}")
-        self._handshake(env, contact.to, contact.owlt)
+        if random.random() > self.uncertainty:
+            contact.end = env.now
+        else:
+            self._handshake(env, contact.to, contact.owlt)
         while env.now < contact.end:
             # If the task table has been updated while we've been in this contact,
             # send that before sharing any more bundles as it may be of value to the
