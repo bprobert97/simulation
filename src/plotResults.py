@@ -230,5 +230,5 @@ for scheme, uncertainty, con in itertools.product(schemes, uncertainties, conges
 		get_fraction_of_first_pickups(results, first_pickup_ids[con])
 	)
 #
-# plot_performance_metrics(schemes, uncertainties, congestions, metrics)
-plot_first_pickups(schemes, first_pu_frac, congestions)
+plot_performance_metrics(schemes, uncertainties, congestions, metrics)
+# plot_first_pickups(schemes, first_pu_frac, congestions)

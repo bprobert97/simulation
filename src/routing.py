@@ -158,7 +158,6 @@ class Route:
     def best_delivery_time(self):
         # Best-case delivery time (i.e. the earliest time a byte of data could arrive
         # at the destination)
-        # FIXME This doesn't yet consider everything it needs
         bdt = 0
         for c in self.hops:
             bdt = max(bdt + c.owlt, c.start + c.owlt)

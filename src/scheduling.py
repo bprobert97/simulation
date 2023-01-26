@@ -338,6 +338,11 @@ class Scheduler:
 
             # If there are no valid routes to the destination from this target
             # acquisition, skip
+            # TODO If we're using bundle TTL rather than an absolute delivery deadline
+            #  that doesn't change, then we should reinstate later acquisition
+            #  opportunities by this node, since there may be a later pickup
+            #  opportunity that has a delivery path short enough to comply with the
+            #  bundle TTL.
             if not path_del:
                 continue
 
