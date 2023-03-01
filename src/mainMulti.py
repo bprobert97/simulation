@@ -13,8 +13,8 @@ schemes = {
 	# "naive":              [False, False, False, False, False],
 	# "first":              [True,  True,  False, False, False],
 	# "cgs_cgr":            [True,  True,  True,  False, False],
-	# "cgs_cgr_resource":   [True,  True,  True,  True,  False],
-	"cgs_msr":            [True,  True,  True,  True,  True],
+	"cgs_cgr_resource":   [True,  True,  True,  True,  False],
+	# "cgs_msr":            [True,  True,  True,  True,  True],
 }
 
 uncertainties = [1.0, 0.9, 0.8, 0.7]
@@ -24,7 +24,7 @@ congestions = [.1, .2, .3, .4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.2, 1.4, 1.6, 1.8,
 # congestions = [0.2, 0.5, 1.0]
 
 filename = "input_files//walker_delta_16.json"
-results_file_base = "results//uncertainty//results"
+results_file_base = "results//uncertainty//cgs_cgr//results"
 with open(filename, "rb") as read_content:
 	inputs = json.load(read_content, object_hook=lambda d: SimpleNamespace(**d))
 
