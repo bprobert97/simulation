@@ -17,8 +17,8 @@ schemes = {
 	# "naive": {"colour": "black"},
 	# "first": {"colour": "blue"},
 	# "cgs_cgr": {"colour": "red"},
-	# "cgs_cgr_resource": {"colour": "green"},
-	"cgs_msr": {"colour": "orange"}
+	"cgs_cgr_resource": {"colour": "green"},
+	# "cgs_msr": {"colour": "orange"}
 }
 
 uncertainties = {
@@ -75,7 +75,7 @@ for metric in metrics:
 
 # for scheme, con in itertools.product(schemes, congestions):
 for scheme, uncertainty, con in itertools.product(schemes, uncertainties, congestions):
-	filename = f"results//uncertainty//results_{scheme}_{uncertainty}_{con}"
+	filename = f"results//uncertainty//cgs_cgr//results_{scheme}_{uncertainty}_{con}"
 	results = pickle.load(open(filename, "rb"))
 
 	request_latency[scheme][uncertainty].append(mean(results.request_latencies) / 3600)
