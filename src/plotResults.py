@@ -17,8 +17,8 @@ schemes = {
 	# "naive": {"colour": "black"},
 	# "first": {"colour": "blue"},
 	# "cgs_cgr": {"colour": "red"},
-	"cgs_cgr_resource": {"colour": "green"},
-	# "cgs_msr": {"colour": "orange"}
+	# "cgs_cgr_resource": {"colour": "green"},
+	"cgs_msr": {"colour": "orange"}
 }
 
 uncertainties = {
@@ -29,29 +29,29 @@ uncertainties = {
 }
 
 request_latency = {
-	"row": 0, "col": 0, "y_label": "Total latency (hrs)", "max": 1, "tick": 1}
+	"row": 0, "col": 0, "label": "(a)", "y_label": "Total latency (hrs)", "max": 1, "tick": 1}
 task_latency = {
-	"row": 0, "col": 1, "y_label": "Pickup latency (hrs)", "max": 1, "tick": 1}
+	"row": 0, "col": 1, "label": "(b)", "y_label": "Pickup latency (hrs)", "max": 1, "tick": 1}
 bundle_latency = {
-	"row": 0, "col": 2, "y_label": "Delivery latency (hrs)", "max": 1, "tick": 1}
+	"row": 0, "col": 2, "label": "(c)", "y_label": "Delivery latency (hrs)", "max": 1, "tick": 1}
 
 request_ratio = {
-	"row": 1, "col": 0, "y_label": "Request ratio", "max": 1, "tick": 0.2}
+	"row": 1, "col": 0, "label": "(d)", "y_label": "Request ratio", "max": 1, "tick": 0.2}
 task_ratio = {
-	"row": 1, "col": 1, "y_label": "Pickup ratio", "max": 1, "tick": 0.2}
+	"row": 1, "col": 1, "label": "(e)", "y_label": "Pickup ratio", "max": 1, "tick": 0.2}
 # delivery_ratio = {
 # 	"row": 1, "col": 2, "y_label": "Delivery ratio", "max": 1, "tick": 0.2}
 hop_count = {
-	"row": 1, "col": 2, "y_label": "Hop count", "max": 1, "tick": 0.5}
+	"row": 1, "col": 2, "label": "(f)", "y_label": "Hop count", "max": 2, "tick": 0.5}
 
 requests_accepted = {
-	"row": 2, "col": 0, "y_label": "Req. accepted, x1000", "max": 1, "tick": 1}
+	"row": 2, "col": 0, "label": "(g)", "y_label": "Req. accepted, x1000", "max": 6, "tick": 1}
 # requests_rejected = {
 # 	"row": 2, "col": 1, "y_label": "Req. rejected, x1000", "max": 1, "tick": 0.5}
 requests_failed = {
-	"row": 2,  "col": 1, "y_label": "Req. failed, x1000", "max": 1, "tick": 1}
+	"row": 2,  "col": 1, "label": "(h)", "y_label": "Req. failed, x1000", "max": 4, "tick": 1}
 requests_delivered = {
-	"row": 2, "col": 2, "y_label": "Req. delivered, x1000", "max": 1, "tick": 1}
+	"row": 2, "col": 2, "label": "(i)", "y_label": "Req. delivered, x1000", "max": 3, "tick": 1}
 
 metrics = [
 	request_latency,
@@ -75,7 +75,9 @@ for metric in metrics:
 
 # for scheme, con in itertools.product(schemes, congestions):
 for scheme, uncertainty, con in itertools.product(schemes, uncertainties, congestions):
-	filename = f"results//uncertainty//cgs_cgr//results_{scheme}_{uncertainty}_{con}"
+	# filename = f"results//uncertainty//0.7//results_{scheme}_{uncertainty}_{con}"
+	# filename = f"results//nominal//results_{scheme}_{con}"
+	filename = f"results//uncertainty//cgs_msr//results_{scheme}_{uncertainty}_{con}"
 	results = pickle.load(open(filename, "rb"))
 
 	request_latency[scheme][uncertainty].append(mean(results.request_latencies) / 3600)
@@ -109,7 +111,7 @@ for scheme, uncertainty, con in itertools.product(schemes, uncertainties, conges
 # plt.rcParams['axes.grid'] = True
 plt.style.use('_mpl-gallery')
 fig, ax = plt.subplots(3, 3)
-plt.subplots_adjust(left=0.05, bottom=0.07, right=0.96, top=0.93)
+plt.subplots_adjust(left=0.06, bottom=0.07, right=0.96, top=0.93)
 
 for scheme, props in schemes.items():
 	for uncertainty, prop_un in uncertainties.items():
@@ -131,15 +133,17 @@ for scheme, props in schemes.items():
 
 			ax[metric["row"], metric["col"]].set_ylabel(metric["y_label"])
 
-ax[2, 0].set_xlabel("Congestion")
-ax[2, 1].set_xlabel("Congestion")
-ax[2, 2].set_xlabel("Congestion")
+			ax[metric["row"], metric["col"]].set_title(metric["label"], loc="left")
+
+ax[2, 0].set_xlabel("Request submission load (RSL)")
+ax[2, 1].set_xlabel("Request submission load (RSL)")
+ax[2, 2].set_xlabel("Request submission load (RSL)")
 
 # Add a legend at the top of the figure
 fig.legend(
 	ax[0, 0].lines,
 	# ["Naive", "First", "CGS (PU)", "CGS (CGR)", "CGS (MSR)"],
-	[0.7, 0.8, 0.9, 1.0],
+	["Reliability = 0.7", "Reliability = 0.8", "Reliability = 0.9", "Reliability = 1.0"],
 	loc='upper center',
 	# ncol=len(schemes),
 	ncol=len(uncertainties)
