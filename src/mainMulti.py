@@ -27,10 +27,12 @@ uncertainties = [
 ]
 
 # Request Submission Load values to be evaluated
-congestions = [.1, .2, .3, .4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.2, 1.4, 1.6, 1.8, 2.]
+# congestions = [.1, .2, .3, .4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.2, 1.4, 1.6, 1.8, 2.]
+congestions = [.1, 0.5, 1.0]
+
 
 filename = "input_files//walker_delta_16.json"
-results_file_base = "results"
+results_file_base = "results//results"
 with open(filename, "rb") as read_content:
 	inputs = json.load(read_content, object_hook=lambda d: SimpleNamespace(**d))
 
