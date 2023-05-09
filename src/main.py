@@ -314,17 +314,22 @@ def build_moc(cp, cpt, sats, gws, scheme: List = None):
 	return moc
 
 
-def main(inputs_, scheme: List = None, uncertainty: float = 1.0):
-	pub.unsubAll()
-	random.seed(0)
+def main(
+		inputs_: SimpleNamespace,
+		scheme: List = None,
+		uncertainty: float = 1.0
+) -> Analytics:
+	pub.unsubAll()  # Unsubscribe from all messages (clean-up)
+	random.seed(0)  # Set up the random seed, for added repeatability
 
-	# Time for the clean network to reach a steady state
+	# Time required for the clean network to reach a steady state
 	warm_up = 10800
 
 	# Time after which we ignore any new requests in the analysis
 	cool_down = 2 * (
 			inputs_.traffic.max_time_to_acquire + inputs_.traffic.max_time_to_deliver)
 
+	# Full duration of the simulation, at which point everything will stop if not done so already
 	full_duration = inputs_.simulation.duration + warm_up + cool_down
 
 	times = [x for x in range(0, full_duration, inputs_.simulation.step_size)]
@@ -429,13 +434,13 @@ if __name__ == "__main__":
 	pick-ups according to their assignation (i.e. bundle acquisition). Acquired bundles 
 	are routed through the network using either CGR or MSR, as specified.
 	"""
-	filename = "input_files//walker_delta_16.json"
-	with open(filename, "rb") as read_content:
+	filename = "sim_polar_simple.json"
+	with open(f"input_files//{filename}", "rb") as read_content:
 		inputs = json.load(read_content, object_hook=lambda d: SimpleNamespace(**d))
 
 	analytics_ = main(inputs)
 
-	with open(f"results//results", "wb") as file:
+	with open(f"results//single//{filename}", "wb") as file:
 		pickle.dump(analytics_, file)
 
 	print(f"Actual congestion, after considering rejected requests, was {analytics_.traffic_load}")
@@ -458,10 +463,10 @@ if __name__ == "__main__":
 	print(f"{analytics_.bundles_dropped_count} Bundles were dropped\n")
 
 	print("*** PERFORMANCE DATA ***")
-	print(f"The average bundle PICKUP latency is {analytics_.pickup_latency_ave}")
-	print(f"The bundle PICKUP latency Std. Dev. is {analytics_.pickup_latency_stdev}")
-	print(f"The average bundle DELIVERY latency is {analytics_.delivery_latency_ave}")
-	print(f"The bundle DELIVERY latency Std. Dev. is {analytics_.delivery_latency_stdev}")
-	print(f"The average bundle REQUEST latency is {analytics_.request_latency_ave}")
-	print(f"The bundle REQUEST latency Std. Dev. is {analytics_.request_latency_stdev}")
-	print(f"The average HOPS PER DELIVERED BUNDLE is {analytics_.hop_count_average}")
+	print(f"The average bundle PICKUP latency is {analytics_.pickup_latency_ave / 60} mins")
+	print(f"The bundle PICKUP latency Std. Dev. is {analytics_.pickup_latency_stdev / 60} mins")
+	print(f"The average bundle DELIVERY latency is {analytics_.delivery_latency_ave / 60} mins")
+	print(f"The bundle DELIVERY latency Std. Dev. is {analytics_.delivery_latency_stdev / 60} mins")
+	print(f"The average bundle REQUEST latency is {analytics_.request_latency_ave / 60} mins")
+	print(f"The bundle REQUEST latency Std. Dev. is {analytics_.request_latency_stdev / 60} mins")
+	print(f"The average HOPS PER DELIVERED BUNDLE is {analytics_.hop_count_average_delivered}")

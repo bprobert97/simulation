@@ -59,7 +59,7 @@ def plot_performance_metrics(schemes, uncertainties, congestions, metrics):
 
 
 # TODO Update the base filename to reflect location of the results
-filename_base = "results//nominal//results"
+filename_base = "results/multi/nominal//results"
 
 # Request submission loads to be included in plots
 rsls = [round(x, 1) for x in np.linspace(0.1, 0.9, 9)]

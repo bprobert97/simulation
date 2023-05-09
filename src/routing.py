@@ -394,6 +394,8 @@ def cgr_dijkstra(
                 continue
 
             # TODO This is new, triple check I'm right here
+            if not contact.rate:
+                print('')
             transfer_time = size / contact.rate
             if contact.end <= current.arrival_time + transfer_time:
                 continue

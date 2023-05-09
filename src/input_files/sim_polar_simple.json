@@ -13,20 +13,24 @@
     "size": 5,
     "lifetime": 100000000,
     "priority": 0,
-    "congestion": 0.9
+    "congestion": 0.9,
+    "max_time_to_acquire": 10800,
+    "max_time_to_deliver": 7200,
+    "msr": true
   },
   "targets": {
     "type": "group",
     "name": "distributed",
     "n": 100,
     "distribution": "even",
-    "min_el": 10
+    "min_el": 10,
+    "destination": 999999
   },
   "gateways": {
     "type": "bespoke",
     "name": "gateways",
     "min_el": 10,
-    "rate": 0,
+    "rate": 1,
     "locations": [
       {"lat": 90.0, "lon": 0.0, "alt": 0.0, "name": "north_pole"}
     ]
