@@ -20,7 +20,7 @@ def plot_performance_metrics(schemes, uncertainties, congestions, metrics):
 				ax[metric["row"], metric["col"]].plot(
 					congestions,
 					metric[scheme][uncertainty],
-					linewidth=2,
+					linewidth=1,
 					color=props_scheme["colour"],
 					linestyle=prop_uncertainty["linestyle"]
 				)
@@ -48,8 +48,8 @@ def plot_performance_metrics(schemes, uncertainties, congestions, metrics):
 
 	fig.legend(
 		ax[0, 0].lines,
-		legend_labels,
-		# ["Naive", "First", "CGS (PU)", "CGS (CGR)", "CGS (MSR)"],
+		# legend_labels,
+		["Naive", "First", "CGS (PU)", "CGS (CGR)", "CGS (MSR)"],
 		# ["Reliability = 0.7", "Reliability = 0.8", "Reliability = 0.9", "Reliability = 1.0"],
 		loc='upper center',
 		ncol=len(legend_labels)
