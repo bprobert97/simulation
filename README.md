@@ -27,8 +27,32 @@ To run a single scenarion, do the following:
 Some summary analysis of the simulation will be displayed in the console, and a pickled version of the Analytics object saved in the directory `/results/single/{filename}`
 
 ## Multi-scenario
-Multiple scenarios can be run from a single execution, to provide additional convenience when performing trade-off analyses. The multiple scenarios must be based off of a single input file (JSON), with specific attributes that contribute to the problem space, being defined manually. To run:
- 1. 
+Multiple scenarios can be run from a single execution, to provide additional convenience when performing trade-off analyses. The multiple scenarios must be based off of a single input file (JSON), with specific attributes that contribute to the problem space, being defined manually. 
+
+### Execute the simulations
+To run:
+ 1. Open the `mainMulty.py` file
+ 2. Comment/Uncomment (as appropriate) the values for **schemes**, **uncertainties** 
+    and **congestions**. These lists define the possible design options and a 
+    full-factorial analysis will be carried out (i.e. every possible combination of 
+    entries)
+ 3. Define the base input file to be used for the simulation, in the `filename` variable
+ 4. Run the `mainMulti.py` file, which will iterate over each of the combinations and 
+    save a Pickle file, per simulation, into the `/results/multi` directory.
+ 5. If required, manually move the new results files into their own directory
+
+**Note** that the value for _traffic.congestion_ and _traffic.msr_ get updated 
+automatically during the execution, as defined by the **congestions** and **schemes** 
+item, respectively.
 
 ### To plot the results
-Execute the src.plotResults.py file
+It is recommended that the plotting is done either for a set of scheduling _schemes_ 
+at a particular level of _uncertainty_, or a single _scheme_ at different 
+_uncertainties_. To set up plotting, in the `plotResults.py` file:
+ 1. Ensure only one of either the `scheme` or `uncertainty` variable (list) has 
+    multiple entries,  with the other just having a single entry.
+ 2. Update the `rsls` variable to match the `congestions` used in the inputs
+ 3. Update the `scheme` and `uncertainty` lists to match those defined in the 
+    simulation inputs
+ 4. Modify the `filename` variable to match the path to the results files
+ 5. Run the `plotResults.py` file

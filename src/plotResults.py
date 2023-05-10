@@ -59,11 +59,12 @@ def plot_performance_metrics(schemes, uncertainties, congestions, metrics):
 
 
 # TODO Update the base filename to reflect location of the results
-filename_base = "results/multi/nominal//results"
+filename_base = "results/multi/"
 
 # Request submission loads to be included in plots
 rsls = [round(x, 1) for x in np.linspace(0.1, 0.9, 9)]
 rsls.extend([round(x, 1) for x in np.linspace(1.0, 2.0, 6)])
+# rsls = [0.1, 0.5, 1.0]
 
 # TODO: Plot should be either a set of schemes at a single uncertainty, or a single
 #  scheme across a set of uncertainties
@@ -125,7 +126,7 @@ for metric in metrics:
 
 # Load each results file, one by one, and extract the necessary metrics for plotting
 for scheme, uncertainty, rsl in itertools.product(schemes, uncertainties, rsls):
-	filename = f"{filename_base}_{scheme}_{uncertainty}_{rsl}"
+	filename = f"{filename_base}results_{scheme}_{uncertainty}_{rsl}"
 	results = pickle.load(open(filename, "rb"))
 
 	request_latency[scheme][uncertainty].append(mean(results.request_latencies) / 3600)
