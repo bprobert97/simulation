@@ -59,7 +59,7 @@ def plot_performance_metrics(schemes, uncertainties, congestions, metrics):
 
 
 # TODO Update the base filename to reflect location of the results
-filename_base = "results/multi/"
+filename_base = "results/multi/nominal/"
 
 # Request submission loads to be included in plots
 rsls = [round(x, 1) for x in np.linspace(0.1, 0.9, 9)]
@@ -91,9 +91,9 @@ bundle_latency = {
 	"row": 0, "col": 2, "label": "(c)", "y_label": "Delivery latency (hrs)", "max": 1, "tick": 1}
 
 request_ratio = {
-	"row": 1, "col": 0, "label": "(d)", "y_label": "Request ratio", "max": 1, "tick": 0.2}
+	"row": 1, "col": 0, "label": "(d)", "y_label": "Request Success Rate (RSR)", "max": 1, "tick": 0.2}
 task_ratio = {
-	"row": 1, "col": 1, "label": "(e)", "y_label": "Pickup ratio", "max": 1, "tick": 0.2}
+	"row": 1, "col": 1, "label": "(e)", "y_label": "Accepted RSR", "max": 1, "tick": 0.2}
 hop_count = {
 	"row": 1, "col": 2, "label": "(f)", "y_label": "Hop count", "max": 2, "tick": 0.5}
 
