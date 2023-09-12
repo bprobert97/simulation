@@ -3,6 +3,8 @@ Contact Graph Scheduling (CGS) is a method of assigning pick-up and delivery sch
 
 ![image](https://user-images.githubusercontent.com/70593134/237059116-ff0e9cca-946b-4afe-9c63-03810ceb3292.png)
 
+## Related publications
+"_Delay-tolerant network approach to satellite pickup and delivery scheduling_", Christopher Lowe, Ruaridh Clark, Ciara McGrath, Malcolm Macdonald, Dec 2023, Ad Hoc Networks, DOI: https://doi.org/10.1016/j.adhoc.2023.103289A
 
 ## Codebase
 This codebase includes a Discrete Event Simulation (DES) implementation of a Space Network, in which requests for location-specific images are submitted to a central scheduler. This scheduler implements CGS to define tasks that are issue throughout the constellation, such that task assignees receive the request in good time to execute the image acquisition, and use [Contact Graph Routing](https://www.sciencedirect.com/science/article/pii/S1084804520303489) to deliver data to the ground in the minimum time possible.
