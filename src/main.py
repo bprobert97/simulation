@@ -435,12 +435,12 @@ if __name__ == "__main__":
 	are routed through the network using either CGR or MSR, as specified.
 	"""
 	filename = "sim_polar_simple.json"
-	with open(f"input_files//{filename}", "rb") as read_content:
+	with open(f"src//input_files//{filename}", "rb") as read_content:
 		inputs = json.load(read_content, object_hook=lambda d: SimpleNamespace(**d))
 
 	analytics_ = main(inputs)
 
-	with open(f"results//single//{filename}", "wb") as file:
+	with open(f"src//results//single//{filename}", "wb") as file:
 		pickle.dump(analytics_, file)
 
 	print(f"Actual congestion, after considering rejected requests, was {analytics_.traffic_load}")
