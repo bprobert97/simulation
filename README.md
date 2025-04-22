@@ -1,5 +1,5 @@
 # Contact Graph Scheduling
-Contact Graph Scheduling (CGS) is a method of assigning pick-up and delivery schedules in delay- and disruption tolerant networks. The principle application is that of assigning image capture and delivery in intermittently connected satellite networks, in which both tasks and image data are routed through the network via ground-space, space-space and space-ground contact opportunities.
+Contact Graph Scheduling (CGS) is a method of assigning pick-up and delivery schedules in delay- and disruption tolerant networks. The principle application is that of assigning image capture and delivery in intermittently connected satellite networks, in which both tasks and image data are routed through the network via ground-space, space-space and space-ground contact opportunities. This code was originally developed by Christopher Lowe and has been adapted by Beth Probert, both of the Applied Space Technology Laboratory at the University of Strathclyde.
 
 ![image](https://user-images.githubusercontent.com/70593134/237059116-ff0e9cca-946b-4afe-9c63-03810ceb3292.png)
 
@@ -16,15 +16,25 @@ A simplfied representation of the Contact Controller function, which lives on bo
 
 ![image](https://user-images.githubusercontent.com/70593134/237060270-48b4a3af-2329-499c-bd8b-1db4505c99ea.png)
 
+# Installation
+To install the required Python dependencies, run:
+
+`pip install -r requirements.txt`
+
+You will also need to install `Microsoft Visual C++` (MSVC) at version 14.0 or greater. Get it with ["Microsoft C++ Build Tools"](https://visualstudio.microsoft.com/visual-cpp-build-tools/).
+
+This software is compatible with Python 3.13.
+
 # Executing the model
-There are two options for executing the CGS simulation
+There are two options for executing the CGS simulation:
  1. Single-scenario execution
  2. Multiple-scenario execution
 
 ## Single-scenario
 To run a single scenarion, do the following:
- 1. At the bottom of the `main.py` file, set the `filename` variable to be the path location of the JSON file containing the mission definition to be evaluated.
- 2. Run the `main.py` file
+ 1. Navigate into the `src` directory
+ 2. At the bottom of the `main.py` file, set the `filename` variable to be the path location of the JSON file containing the mission definition to be evaluated.
+ 3. Run the `main.py` file
 
 Some summary analysis of the simulation will be displayed in the console, and a pickled version of the Analytics object saved in the directory `/results/single/{filename}`
 
